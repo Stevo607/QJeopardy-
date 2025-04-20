@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quality Jeopardy - Enhanced Edition</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Basic reset and box-sizing */
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* CSS Variables for theming */
+        :root {
+            --bg: #0b2345;
+            /* page background */
+            --fg: #ffffff;
+            /* default text colour */
+            --card-bg: #1e3a8a;
+            /* card / category background */
+            --flip-duration: .6s;
+            /* Card flip animation speed */
+            --score-bg: #02132c;
+            /* Score panel background */
+            --correct-bg: #d4edda;
+            /* Background for correctly answered cards */
+            --wrong-bg: #f8d7da;
+            /* Background for incorrectly answered cards */
+            --jeopardy-border: 4px solid #ffeb3b;
+            /* Potential border style */
+            --player-1-color: #4caf50;
+            /* Player 1 color */
+            --player-2-color: #2196f3;
+            /* Player 2 color */
+            --player-3-color: #ff9800;
+            /* Player 3 color */
+            --player-4-color: #e91e63;
+            /* Player 4 color */
+            --active-player-bg: rgba(255, 255, 255, 0.2);
+            /* Active player background */
+            --disabled-card-bg: #4a4a4a; /* Added for DD visibility */
+        }
+
+        /* Body styles */
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.4;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            /* Ensure body takes full height */
+        }
+
+        /* -------- Layout Wrapper -------- */
+        /* New wrapper for player and score panels */
+        #game-controls-wrapper {
+            display: flex;
+            justify-content: center; /* Center items horizontally */
+            align-items: flex-start; /* Align tops */
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            gap: 1.5rem; /* Space between panels */
+            max-width: 1000px; /* Max width for the controls area */
+            margin: 1rem auto; /* Center the wrapper */
+        }
+
+        /* -------- Player Panel -------- */
+        #player-panel {
+            /* Removed max-width and margin: auto */
+            background: var(--score-bg);
+            padding: 1rem;
+            border-radius: 8px;
+            flex: 1 1 400px; /* Flex grow, shrink, basis */
+            max-width: 450px; /* Limit max width */
+            min-width: 280px; /* Ensure minimum width */
+        }
+
+        #player-setup {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        #player-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+            min-height: 50px;
+        }
+
+        .player-card {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            width: 175px;
+            position: relative;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .player-card.active-player {
+            background: var(--active-player-bg);
+            border-color: #ffeb3b;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+
+        .player-name {
+            font-weight: bold;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            word-break: break-word;
+        }
+
+        .player-score {
+            font-size: 1.5rem;
+        }
+
+        .player-indicator {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        /* -------- Score panel -------- */
+        #score-panel {
+            /* Removed max-width and margin: auto */
+            background: var(--score-bg);
+            color: var(--fg);
+            padding: 1rem;
+            border-radius: 8px;
+            display: flex;
+            /* Initially hidden handled by JS */
+            flex-direction: column;
+            gap: .75rem;
+            flex: 1 1 400px; /* Flex grow, shrink, basis */
+            max-width: 450px; /* Limit max width */
+             min-width: 280px; /* Ensure minimum width */
+        }
+
+        #score-display {
+            font-size: 1.3rem; /* Adjusted size slightly */
+            text-align: center;
+            font-weight: bold;
+            min-height: 2em;
+            background-color: rgba(0,0,0,0.2); /* Slight background for display area */
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: .75rem;
+        }
+
+        input[type=number],
+        input[type=text],
+        button {
+            padding: .4rem .6rem;
+            font-size: .9rem;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            color: #333;
+        }
+
+        button {
+            cursor: pointer;
+            background-color: var(--card-bg);
+            color: var(--fg);
+            border: 1px solid var(--fg);
+            transition: background-color 0.3s;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #2f4c9c;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        input[type=number] {
+            width: 100px;
+        }
+
+        input[type=checkbox] {
+            width: auto;
+            height: auto;
+            margin-right: 5px;
+            vertical-align: middle;
+            cursor: pointer;
+        }
+
+        label[for="music-toggle"] {
+            vertical-align: middle;
+            cursor: pointer;
+        }
+
+
+        /* -------- Board & Card -------- */
+        #board {
+            display: grid;
+            gap: 4px;
+            max-width: 1000px;
+            margin: 1.5rem auto; /* Increased margin top */
+        }
+
+        .category {
+            background: var(--card-bg);
+            padding: 1rem;
+            text-align: center;
+            font-weight: 700;
+            color: #ffeb3b;
+            cursor: default;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            perspective: 1000px;
+            cursor: pointer;
+            position: relative;
+            min-height: 110px; /* Increased min height */
+        }
+
+        .card.disabled {
+            pointer-events: none;
+            cursor: default;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transition: transform var(--flip-duration);
+        }
+
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            backface-visibility: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            padding: .5rem;
+            border-radius: 4px;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        .card-front {
+            background: var(--card-bg);
+            color: #ffeb3b;
+            font-weight: 700;
+        }
+
+        /* Style for the front of answered cards */
+        .card-front.empty-value {
+            background: var(--disabled-card-bg); /* Use the disabled bg color */
+            color: #888;
+        }
+         /* Style for front of cards marked DD but not answered */
+         .card.daily-double-marker .card-front {
+             /* Optionally add a subtle visual indicator for DD */
+             /* Example: outline: 1px dashed gold; */
+         }
+
+
+        .card-back {
+            background: #ffffff;
+            color: #000000;
+            transform: rotateY(180deg);
+            justify-content: space-around;
+            font-size: clamp(.8rem, 1.8vw, 1.1rem);
+            overflow-y: auto;
+            padding: .75rem;
+        }
+
+        .question-text {
+            margin-bottom: 0.5rem;
+            flex-grow: 1;
+            overflow-y: auto;
+            max-height: 70%;
+        }
+
+        .card.correct .card-front.empty-value, /* Target empty front */
+        .card.correct .card-back {
+            background: var(--correct-bg);
+            color: #155724;
+        }
+
+        .card.wrong .card-front.empty-value, /* Target empty front */
+        .card.wrong .card-back {
+            background: var(--wrong-bg);
+            color: #721c24;
+        }
+
+        .card:not(.disabled):not(.flipped):hover .card-front {
+            outline: 2px solid #fde047;
+            transform: scale(1.05);
+            transition: transform 0.2s ease, outline 0.2s ease;
+        }
+
+        .judge-buttons {
+            margin-top: auto;
+            padding-top: .5rem;
+            display: flex;
+            gap: .5rem;
+            flex-wrap: nowrap;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .judge-buttons button {
+            padding: .4rem .6rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            font-size: clamp(.7rem, 2vw, .9rem);
+        }
+
+        .correct-btn {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .wrong-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        /* -------- Other Sections -------- */
+
+        #victory {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+            font-size: 2rem;
+            background: #10b981;
+            color: #ffffff;
+            margin: 1rem auto;
+            border-radius: 8px;
+            max-width: 600px;
+        }
+
+        #final-jeopardy {
+            display: none;
+            max-width: 800px;
+            margin: 1rem auto;
+            background: #1e3a8a;
+            padding: 2rem;
+            border-radius: 8px;
+            border: var(--jeopardy-border);
+            text-align: center;
+        }
+
+        #final-jeopardy h2 {
+            color: #ffeb3b;
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        #final-category {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            font-weight: bold;
+        }
+
+        #final-question {
+            background: #fff;
+            color: #000;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+            font-size: 1.4rem;
+            line-height: 1.5;
+        }
+
+        .final-wagers {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            align-items: center;
+        }
+
+        .wager-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .wager-row label {
+            flex: 1;
+            text-align: right;
+            font-weight: bold;
+        }
+
+        .wager-row input {
+            flex: 1;
+            max-width: 150px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: var(--score-bg);
+            padding: 2rem;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            position: relative;
+            text-align: center;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .modal-close:hover {
+            color: #fff;
+        }
+
+        #final-results div {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        #final-results div:last-child {
+            margin-bottom: 1.5rem;
+        }
+
+        #high-scores {
+            max-width: 600px;
+            margin: 1rem auto;
+            background: var(--score-bg);
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        #high-scores h2 {
+            text-align: center;
+            margin-bottom: 1rem;
+            color: #ffeb3b;
+        }
+
+        #high-scores-list {
+            list-style-type: decimal;
+            margin-top: 1rem;
+            padding-left: 2rem;
+        }
+
+        #high-scores-list li {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #high-scores-list li span:last-child {
+            font-weight: bold;
+        }
+
+        .confetti {
+            position: fixed;
+            width: 10px;
+            height: 10px;
+            background-color: #f00;
+            opacity: 0.7;
+            z-index: 1001;
+            animation: fall linear forwards;
+            top: -20px;
+            pointer-events: none;
+        }
+
+        @keyframes fall {
+            to {
+                transform: translateY(105vh) rotate(720deg);
+                opacity: 0;
+            }
+        }
+
+        @media(max-width: 768px) {
+             /* Adjust flex wrapper for controls on medium screens */
+            #game-controls-wrapper {
+                 max-width: 95%;
+                 gap: 1rem;
+            }
+            #player-panel, #score-panel {
+                 flex-basis: 300px; /* Allow slightly smaller basis */
+            }
+            #board { gap: 3px; }
+            .category { font-size: 0.8rem; padding: 0.5rem; }
+            .card-face { font-size: 1.2rem; }
+            #game-title { font-size: 3rem; }
+            .player-card { width: 150px; }
+        }
+
+
+        @media(max-width: 650px) { /* Breakpoint for stacking controls */
+             #game-controls-wrapper {
+                 flex-direction: column; /* Stack panels */
+                 align-items: center; /* Center stacked items */
+             }
+              #player-panel, #score-panel {
+                 max-width: 95%; /* Allow full width when stacked */
+                 width: 100%; /* Ensure they take width */
+                 flex-basis: auto; /* Reset basis */
+             }
+             .category { font-size: .75rem; padding: .4rem }
+             .card-face { font-size: 1rem }
+             #score-panel, #player-panel, #high-scores, #final-jeopardy { width: 95%; max-width: 95%; }
+             #game-title { font-size: 2.2rem; }
+             .player-card { width: calc(50% - 1rem); }
+             .controls { justify-content: center; gap: .5rem;}
+             button, input { font-size: 0.8rem; padding: 0.3rem 0.5rem; }
+             #final-question { font-size: 1.1rem; }
+             .wager-row { flex-direction: column; align-items: center; gap: 0.5rem; }
+             .wager-row label { text-align: center; margin-bottom: 0.2rem; }
+             .wager-row input { max-width: 120px; }
+             .tabs button { font-size: 0.8rem; padding: 0.4rem 0.6rem;}
+        }
+
+        @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap");
+
+        #game-title {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            font-size: 4rem;
+            color: gold;
+            text-align: center;
+            margin: 1rem 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, .7);
+        }
+
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 1rem auto;
+            max-width: 800px;
+            flex-wrap: wrap;
+        }
+
+        .tab-button {
+            padding: 0.5rem 1rem;
+            border: none;
+            background: var(--card-bg);
+            color: #fff;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .tab-button:hover,
+        .tab-button.active {
+            background: #2f4c9c;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        #score-history-chart-container {
+            min-height: 300px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ccc;
+            border-radius: 8px;
+            margin-top: 1rem;
+            padding: 1rem;
+            position: relative; /* Needed for absolute positioning of placeholder */
+        }
+        #score-history-chart { /* Canvas */
+             display: block; /* Ensure canvas is block */
+             max-width: 100%;
+        }
+        #chart-placeholder-text {
+             position: absolute; /* Position placeholder over canvas area */
+             top: 50%;
+             left: 50%;
+             transform: translate(-50%, -50%);
+             text-align: center;
+        }
+
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1 id="game-title">QUALITY JEOPARDY</h1>
+    </header>
+
+    <!-- Tab Navigation -->
+    <div class="tabs">
+        <button class="tab-button active" data-tab="game-tab">Game</button>
+        <button class="tab-button" data-tab="score-history-tab">Score History</button>
+        <button class="tab-button" data-tab="high-scores-tab">High Scores</button>
+    </div>
+
+    <!-- Game Tab Content -->
+    <div id="game-tab" class="tab-content active">
+
+        <!-- *** NEW WRAPPER for Player and Score Panels *** -->
+        <div id="game-controls-wrapper">
+            <!-- Player Setup and Management -->
+            <section id="player-panel" aria-label="Player Management">
+                <div id="player-setup">
+                    <div class="controls">
+                        <input id="player-name" type="text" placeholder="Player Name" aria-label="Player Name" />
+                        <button id="add-player">Add Player</button>
+                        <button id="start-game" disabled>Start Game</button>
+                    </div>
+                </div>
+                <div id="player-list">
+                    <!-- Player cards will be added here by JS -->
+                </div>
+            </section>
+
+            <!-- Score Panel -->
+            <section id="score-panel" aria-label="Score Control Panel" style="display: none;">
+                <div id="score-display" aria-live="polite">Player: Score $0</div>
+                <div class="controls">
+                    <input id="manual-score" type="number" step="100" aria-label="Manual score adjustment for current player" placeholder="Set Score" />
+                    <button id="apply-score" aria-label="Apply manual score to current player">Update Player Score</button>
+                </div>
+                <div class="controls">
+                    <button id="undo-score" disabled>Undo Last Score</button>
+                    <button id="reset-all-scores" disabled>Reset All Scores</button>
+                    <button id="new-game">New Game</button>
+                </div>
+                <div class="controls">
+                    <label for="music-toggle">Music</label>
+                    <input type="checkbox" id="music-toggle" checked />
+                    <button id="show-final-jeopardy" disabled>Final Jeopardy</button>
+                </div>
+            </section>
+        </div><!-- End of game-controls-wrapper -->
+
+
+        <!-- Final Jeopardy Section -->
+        <section id="final-jeopardy" aria-label="Final Jeopardy Round">
+            <h2>FINAL JEOPARDY</h2>
+            <div id="final-category">Category: Loading...</div>
+            <div id="final-question" style="display: none;">Question text...</div>
+            <button id="reveal-final-question">Reveal Question</button>
+            <div class="final-wagers" id="final-wagers">
+            </div>
+            <div class="controls">
+                <button id="submit-final-wagers" style="display: none;">Lock In Wagers</button>
+                <button id="judge-final-answers" style="display: none;">Judge Final Answers</button>
+            </div>
+        </section>
+
+        <!-- Audio Elements (Ensure correct paths!) -->
+        <audio id="bg-music" src="sounds/JeopardyTheme.mp3" loop preload="auto"></audio>
+        <audio id="correct-sound" src="sounds/correct.mp3" preload="auto"></audio>
+        <audio id="wrong-sound" src="sounds/wrong.mp3" preload="auto"></audio>
+        <audio id="daily-double-sound" src="sounds/daily_double.mp3" preload="auto"></audio>
+        <audio id="final-jeopardy-sound" src="sounds/final_jeopardy.mp3" preload="auto"></audio>
+
+
+        <!-- Game Board -->
+        <section id="board" aria-label="Jeopardy Game Board" style="display: none;"></section>
+        <div id="victory" role="alert">Congratulations! You've cleared the board! Prepare for Final Jeopardy!</div>
+    </div><!-- End of game-tab -->
+
+    <!-- Score History Tab Content -->
+    <div id="score-history-tab" class="tab-content">
+        <section id="score-history-container">
+            <h2>Score Progression</h2>
+            <div id="score-history-chart-container">
+                <canvas id="score-history-chart"></canvas>
+                 <p id="chart-placeholder-text">(Score history will appear here)</p>
+            </div>
+        </section>
+    </div><!-- End of score-history-tab -->
+
+    <!-- High Scores Tab Content -->
+    <div id="high-scores-tab" class="tab-content">
+        <section id="high-scores">
+            <h2>High Scores</h2>
+            <ul id="high-scores-list">
+                <li>No scores saved yet.</li>
+            </ul>
+        </section>
+    </div><!-- End of high-scores-tab -->
+
+    <!-- Results Modal -->
+    <div id="results-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" title="Close">×</span>
+            <h2>Game Results</h2>
+            <div id="final-results"></div>
+            <button id="save-high-scores">Save to High Scores</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Constants ---
+        const STORAGE_KEY_GAME = 'quality_jeopardy_game_progress_v3_' + location.pathname; // Incremented version
+        const STORAGE_KEY_SCORES = 'quality_jeopardy_high_scores_v1';
+        const PLAYER_COLORS = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#f44336', '#ffc107'];
+        const MIN_WAGER = 5;
+        const DAILY_DOUBLE_MAX_WAGER_BASE = 1000;
+
+        // --- Game Data (Ensure this is filled) ---
+        const gameData = {
+            categories: [
+                { name: 'Food Safety', clues: [200, 400, 600, 800, 1000] },
+                { name: 'GMPs', clues: [200, 400, 600, 800, 1000] },
+                { name: 'FSMA', clues: [200, 400, 600, 800, 1000] },
+                { name: 'Allergens', clues: [200, 400, 600, 800, 1000] },
+                { name: 'HACCP', clues: [200, 400, 600, 800, 1000] },
+                { name: 'Chocolate', clues: [200, 400, 600, 800, 1000] }
+            ]
+        };
+
+        const questionBank = {
+      'Food Safety': [
+        'The number of major food allergens recognized by the US FDA.',
+        'Many consumers mistakenly consider this a food allergen; perhaps it should not be listed in this category.',
+        'The maximum amount of peanuts allowed in a food that does NOT require a "Contains: peanuts" label.',
+        'Examples of advisory statements that are NOT required by FALCPA (Food Allergen Labeling and Consumer Protection Act of 2004).',
+        'FALCPA requires manufacturers to declare when a product contains an allergen OR contains this component from a major allergen.'
+      ],
+      'GMPs':        ['Define  it..','What all employees must do when returning from the restroom','Experts recommend reciting the ABC’s or singing “Happy Birthday” to ensure proper contact time when doing this','The only type of jewelry allowed to be worn on the plant floor','Employees with this are not permitted to work with food products'],
+      'FSMA':        [
+        'January 4, 2011', // Question 1 for FSMA
+        'Non-binding published regulations; they do not have the rule of law .. yet', // Question 2 for FSMA
+        'Every year, 1 out of this number of people in the United State suffers from foodborne illness, That’s 48 million people!', // Question 3 for FSMA
+        'The Hourly rate the FDA charges for re-inspection of a domestic food facility', // Question 4 for FSMA
+        'For the first time, FDA has this authority for all food products' // Question 5 for FSMA
+      ],
+      'Allergens':   [
+        'The number of major food allergens recognized by the US FDA', // Question 1 for Allergens
+        'Many consumers mistakenly consider this a food allergen; perhaps it should not be mentioned in this category', // Question 2 for Allergens
+        'This is the amount of peanuts allowed in a food that does NOT have to be labeled as “Contains: peanuts”.', // Question 3 for Allergens
+        'Advisory statements that are not required by FALCPA (Food Allergen Labeling and Consumer Protection Act of 2004)', // Question 4 for Allergens
+        'FALCPA requires food manufacturers to label food products that contain an allergen or contains this from a major food allergen' // Question 5 for Allergens
+      ],
+      'HACCP':       [
+        'The “HA” in HACCP', // Question 1 for HACCP
+        'The “CCP” in HACCP', // Question 2 for HACCP
+        'A point, step or procedure at which controls can be applied and a food safety hazard can be prevented, eliminated or reduced to acceptable levels', // Question 3 for HACCP
+        'These are the supporting programs that with CCP’s make up a Food Safety System', // Question 4 for HACCP
+        'FSMA HACCP' // Question 5 for HACCP
+      ],
+      'Chocolate':   [
+        'A confection made from roasted cocoa beans, sugar, and milk', // Question 1 for Chocolate
+        'A light to medium brown shade', // Question 2 for Chocolate
+        'Sweet, creamy, and sometimes slightly bitter', // Question 3 for Chocolate
+        'The chocolate treat you enjoy the most', // Question 4 for Chocolate
+        'Warm, tropical regions near the equator, such as West Africa or South America.' // Question 5 for Chocolate
+      ]
+
+        };
+
+        const finalJeopardyQuestions = [ // Keep your FJ questions
+            { category: "Cat 1", question: "FJ Q1 (A: A)" },
+            { category: "Cat 2", question: "FJ Q2 (A: B)" },
+            { category: "Cat 3", question: "FJ Q3 (A: C)" }
+        ];
+        let finalJeopardyData = null;
+
+        // --- State Variables ---
+        let players = [];
+        let currentPlayerId = null;
+        let gameStarted = false;
+        let boardState = {};
+        let historyStack = [];
+        let scoreHistory = {};
+        // let dailyDoubleIndex = -1; // No longer used, info is in boardState
+        let currentWager = 0;
+        let answeredCluesCount = 0;
+        let turnCounter = 0;
+        let activeChart = null;
+
+        // --- Calculated Values ---
+        const numCategories = gameData.categories.length;
+        const numCluesPerCat = gameData.categories[0]?.clues?.length ?? 0;
+        const totalClues = numCategories * numCluesPerCat;
+
+        // --- DOM References ---
+        // Assuming IDs are correct from previous steps...
+        const boardElement = document.getElementById('board');
+        const victoryElement = document.getElementById('victory');
+        const musicElement = document.getElementById('bg-music');
+        const musicToggleElement = document.getElementById('music-toggle');
+        const addPlayerBtnElement = document.getElementById('add-player');
+        const startGameBtnElement = document.getElementById('start-game');
+        const playerNameInputElement = document.getElementById('player-name');
+        const playerListElement = document.getElementById('player-list');
+        const scorePanelElement = document.getElementById('score-panel');
+        const scoreDisplayElement = document.getElementById('score-display');
+        const manualScoreInputElement = document.getElementById('manual-score');
+        const applyScoreBtnElement = document.getElementById('apply-score');
+        const undoBtnElement = document.getElementById('undo-score');
+        const resetScoresBtnElement = document.getElementById('reset-all-scores');
+        const newGameBtnElement = document.getElementById('new-game');
+        const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy');
+        const finalJeopardySectionElement = document.getElementById('final-jeopardy');
+        const finalCategoryElement = document.getElementById('final-category');
+        const finalQuestionElement = document.getElementById('final-question');
+        const revealFinalQuestionBtnElement = document.getElementById('reveal-final-question');
+        const submitFinalWagersBtnElement = document.getElementById('submit-final-wagers');
+        const judgeFinalAnswersBtnElement = document.getElementById('judge-final-answers');
+        const finalWagersContainerElement = document.getElementById('final-wagers');
+        const resultsModalElement = document.getElementById('results-modal');
+        const finalResultsElement = document.getElementById('final-results');
+        const saveHighScoresBtnElement = document.getElementById('save-high-scores');
+        const modalCloseElement = document.querySelector('.modal-close');
+        const scoreHistoryContainerElement = document.getElementById('score-history-container');
+        const scoreHistoryChartCanvas = document.getElementById('score-history-chart');
+        const chartPlaceholderText = document.getElementById('chart-placeholder-text');
+        const highScoresListElement = document.getElementById('high-scores-list');
+        const correctSound = document.getElementById('correct-sound');
+        const wrongSound = document.getElementById('wrong-sound');
+        const dailyDoubleSound = document.getElementById('daily-double-sound');
+        const finalJeopardySound = document.getElementById('final-jeopardy-sound');
+
+
+        // --- Functions ---
+
+        function getPlayerById(playerId) {
+            return players.find(p => p.id === playerId);
+        }
+
+        function updatePlayerScore(playerId, delta, isUndo = false, cardKey = null) {
+            const player = getPlayerById(playerId);
+            if (player) {
+                const oldScore = player.score;
+                player.score += delta;
+                const newScore = player.score;
+                console.log(`Score: ${player.name} ${oldScore} -> ${newScore} (Delta: ${delta})`);
+
+                if (!scoreHistory[playerId]) {
+                    scoreHistory[playerId] = [];
+                    if (turnCounter === 0 && oldScore === 0) {
+                         scoreHistory[playerId].push({ turn: 0, score: 0 });
+                    }
+                }
+                scoreHistory[playerId].push({ turn: turnCounter, score: newScore });
+
+                if (!isUndo) {
+                    historyStack.push({ action: 'score', playerId: playerId, delta: delta, turn: turnCounter, cardKey: cardKey });
+                    updateUndoButtonState();
+                }
+                updatePlayerCards();
+                updateScoreDisplay();
+                drawScoreHistoryChart(); // Update chart
+            } else {
+                console.error("Player not found for score update:", playerId);
+            }
+            // Only save progress *after* potential state changes are done
+             if (!isUndo) saveGameProgress();
+        }
+
+        function nextPlayerTurn() {
+            if (players.length <= 1) return;
+            const currentIndex = players.findIndex(p => p.id === currentPlayerId);
+            let nextIndex = (currentIndex + 1) % players.length;
+            currentPlayerId = players[nextIndex]?.id;
+            turnCounter++; // Increment turn counter *before* next turn starts for history alignment
+            console.log(`Turn ${turnCounter}: ${players[nextIndex]?.name}'s turn`);
+            updatePlayerCards();
+            updateScoreDisplay();
+            saveGameProgress(); // Save state including new player and turn
+        }
+
+        function updatePlayerCards() {
+            // ... (same as before)
+            if (!playerListElement) return;
+            playerListElement.innerHTML = '';
+            players.forEach(player => {
+                const card = document.createElement('div');
+                card.className = 'player-card';
+                card.dataset.playerId = player.id;
+                if (player.id === currentPlayerId && gameStarted) {
+                card.classList.add('active-player');
+                }
+                const indicator = document.createElement('div');
+                indicator.className = 'player-indicator';
+                indicator.style.backgroundColor = player.color;
+                const nameElem = document.createElement('div');
+                nameElem.className = 'player-name';
+                nameElem.textContent = player.name || 'Unnamed Player';
+                const scoreElem = document.createElement('div');
+                scoreElem.className = 'player-score';
+                scoreElem.textContent = `$${player.score}`;
+                card.appendChild(indicator);
+                card.appendChild(nameElem);
+                card.appendChild(scoreElem);
+                playerListElement.appendChild(card);
+            });
+        }
+
+        function updateScoreDisplay() {
+            // ... (same as before)
+             if (!scoreDisplayElement) return;
+            if (currentPlayerId && gameStarted) {
+                const player = getPlayerById(currentPlayerId);
+                if(player) {
+                    scoreDisplayElement.textContent = `Turn: ${player.name} | Score: $${player.score}`;
+                } else {
+                    scoreDisplayElement.textContent = "Waiting for player...";
+                }
+            } else if (!gameStarted) {
+                scoreDisplayElement.textContent = "Add players and start game";
+            } else {
+                scoreDisplayElement.textContent = "Game Over";
+            }
+        }
+
+        function generateBoard() {
+            if (!boardElement) return;
+            boardElement.innerHTML = '';
+            boardElement.style.gridTemplateColumns = `repeat(${numCategories}, 1fr)`;
+
+            gameData.categories.forEach(cat => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'category';
+                categoryDiv.textContent = cat.name;
+                boardElement.appendChild(categoryDiv);
+            });
+
+            for (let r = 0; r < numCluesPerCat; r++) {
+                for (let c = 0; c < numCategories; c++) {
+                    const cardValue = gameData.categories[c]?.clues[r] ?? 0;
+                    const categoryName = gameData.categories[c]?.name ?? 'Unknown';
+                    const questionText = questionBank[categoryName]?.[r] ?? 'Question not found!';
+                    const cardId = `card-${c}-${r}`;
+                    const stateKey = `${c}-${r}`;
+
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.id = cardId;
+                    card.dataset.catIndex = c;
+                    card.dataset.rowIndex = r;
+                    card.dataset.value = cardValue;
+                    card.dataset.stateKey = stateKey;
+
+                    const inner = document.createElement('div');
+                    inner.className = 'card-inner';
+
+                    const front = document.createElement('div');
+                    front.className = 'card-face card-front';
+
+                    const back = document.createElement('div');
+                    back.className = 'card-face card-back';
+                    back.innerHTML = `
+                        <div class="question-text">${questionText}</div>
+                        <div class="judge-buttons" style="display: none;">
+                            <button class="correct-btn" aria-label="Correct Answer">Correct</button>
+                            <button class="wrong-btn" aria-label="Wrong Answer">Wrong</button>
+                        </div>
+                    `;
+
+                    inner.appendChild(front);
+                    inner.appendChild(back);
+                    card.appendChild(inner);
+
+                    const currentState = boardState[stateKey];
+                    const isAnswered = currentState?.state; // Check if 'correct' or 'wrong' exists
+
+                    if (isAnswered) {
+                        // Card has been answered
+                        card.classList.add('disabled', currentState.state);
+                        front.textContent = '';
+                        front.classList.add('empty-value');
+                    } else {
+                         // Card is unanswered (could be normal or DD)
+                        front.textContent = `$${cardValue}`;
+                        card.addEventListener('click', handleCardClick);
+                        if (currentState?.isDailyDouble) {
+                             // Optionally add a class for DD styling if needed
+                             card.classList.add('daily-double-marker');
+                        }
+                    }
+
+                    boardElement.appendChild(card);
+                }
+            }
+            boardElement.style.display = 'grid';
+        }
+
+
+        function handleCardClick(event) {
+            // ... (mostly same as before)
+             const card = event.currentTarget;
+            const stateKey = card.dataset.stateKey;
+
+            if (!gameStarted || card.classList.contains('flipped') || card.classList.contains('disabled') || !currentPlayerId) {
+                return;
+            }
+
+            card.classList.add('flipped');
+
+            const value = parseInt(card.dataset.value, 10);
+            const judgeButtons = card.querySelector('.judge-buttons');
+            const isDailyDouble = boardState[stateKey]?.isDailyDouble ?? false; // Check state
+
+            if (isDailyDouble) {
+                playSound(dailyDoubleSound);
+                console.log("Daily Double!");
+                let wager = NaN;
+                const player = getPlayerById(currentPlayerId);
+                if (!player) return;
+
+                const maxWager = Math.max(DAILY_DOUBLE_MAX_WAGER_BASE, player.score > 0 ? player.score : DAILY_DOUBLE_MAX_WAGER_BASE);
+
+                while (isNaN(wager) || wager < MIN_WAGER || wager > maxWager) {
+                    const wagerInput = prompt(`DAILY DOUBLE!\n${player.name}, enter your wager (min $${MIN_WAGER}, max $${maxWager}):`);
+                    if (wagerInput === null) {
+                        wager = MIN_WAGER;
+                        break;
+                    }
+                    wager = parseInt(wagerInput, 10);
+                    if (isNaN(wager) || wager < MIN_WAGER || wager > maxWager) {
+                        alert(`Invalid wager. Please enter a number between $${MIN_WAGER} and $${maxWager}.`);
+                    }
+                }
+                currentWager = wager;
+                console.log(`${player.name} wagered $${currentWager}`);
+
+            } else {
+                currentWager = value;
+            }
+
+            if (judgeButtons) judgeButtons.style.display = 'flex';
+
+            const correctBtn = card.querySelector('.correct-btn');
+            const wrongBtn = card.querySelector('.wrong-btn');
+
+            const judgeCorrect = () => judgeAnswer(card, true, currentWager, isDailyDouble);
+            const judgeWrong = () => judgeAnswer(card, false, currentWager, isDailyDouble);
+
+            if (correctBtn) correctBtn.onclick = (e) => { e.stopPropagation(); judgeCorrect(); };
+            if (wrongBtn) wrongBtn.onclick = (e) => { e.stopPropagation(); judgeWrong(); };
+        }
+
+
+        function judgeAnswer(card, isCorrect, amount, isDailyDouble = false) {
+            // ... (mostly same as before)
+            if (!currentPlayerId || !card) return;
+            const stateKey = card.dataset.stateKey;
+             // Check if ALREADY answered
+            if (!stateKey || boardState[stateKey]?.state) {
+                 console.warn("Attempted to judge already answered card:", stateKey);
+                 return;
+            }
+
+            const delta = isCorrect ? amount : -amount;
+            // Perform score update FIRST
+            updatePlayerScore(currentPlayerId, delta, false, stateKey);
+
+            playSound(isCorrect ? correctSound : wrongSound);
+
+            card.classList.remove('flipped');
+            card.classList.add('disabled', isCorrect ? 'correct' : 'wrong');
+            card.removeEventListener('click', handleCardClick);
+
+            const frontFace = card.querySelector('.card-front');
+            if (frontFace) {
+                frontFace.textContent = '';
+                frontFace.classList.add('empty-value');
+            }
+
+            const judgeButtons = card.querySelector('.judge-buttons');
+            if (judgeButtons) judgeButtons.style.display = 'none';
+            const correctBtn = card.querySelector('.correct-btn');
+            const wrongBtn = card.querySelector('.wrong-btn');
+            if (correctBtn) correctBtn.onclick = null;
+            if (wrongBtn) wrongBtn.onclick = null;
+
+            // Update board state AFTER score update
+            if (!boardState[stateKey]) boardState[stateKey] = {}; // Ensure object exists
+            boardState[stateKey].state = isCorrect ? 'correct' : 'wrong';
+            boardState[stateKey].playerId = currentPlayerId;
+            answeredCluesCount++;
+
+            currentWager = 0;
+
+            // Turn change logic
+             if (!isCorrect) { // Always change turn on wrong answer
+                nextPlayerTurn();
+            } else {
+                // Correct answer: Player keeps control UNLESS it was a Daily Double
+                 if (isDailyDouble) {
+                     nextPlayerTurn(); // Change turn even on correct DD
+                 } else {
+                     // Correct non-DD answer, player keeps control
+                     // No turn change, but need to save progress
+                     updateScoreDisplay(); // Update display for same player
+                     saveGameProgress();
+                 }
+            }
+
+            if (answeredCluesCount >= totalClues) {
+                showVictory();
+            }
+        }
+
+
+        function determineDailyDouble() {
+             // ... (same logic as before)
+            if (totalClues === 0) return;
+            Object.keys(boardState).forEach(key => {
+                if (boardState[key]) boardState[key].isDailyDouble = false;
+            });
+            const possibleIndices = [];
+            for (let r = 1; r < numCluesPerCat; r++) {
+                for (let c = 0; c < numCategories; c++) {
+                    const stateKey = `${c}-${r}`;
+                    if (!boardState[stateKey]?.state) {
+                        possibleIndices.push(stateKey);
+                    }
+                }
+            }
+            if (possibleIndices.length > 0) {
+                const randomIndex = Math.floor(Math.random() * possibleIndices.length);
+                const ddStateKey = possibleIndices[randomIndex];
+                if (!boardState[ddStateKey]) {
+                    boardState[ddStateKey] = {};
+                }
+                boardState[ddStateKey].isDailyDouble = true;
+                console.log("Daily Double location (stateKey):", ddStateKey);
+            } else {
+                console.log("Could not place Daily Double.");
+            }
+        }
+
+
+        function saveGameProgress() {
+            // ... (same as before)
+             if (!gameStarted && players.length === 0) return;
+            const state = {
+                gameStarted, players: players.map(p => ({ ...p })), currentPlayerId,
+                boardState: { ...boardState }, historyStack: [...historyStack],
+                answeredCluesCount, turnCounter, scoreHistory: { ...scoreHistory }
+            };
+            try { localStorage.setItem(STORAGE_KEY_GAME, JSON.stringify(state)); }
+            catch (e) { console.error("Error saving game progress:", e); }
+        }
+
+
+        function loadGameProgress() {
+            // ... (same as before)
+            const savedState = localStorage.getItem(STORAGE_KEY_GAME);
+            if (savedState) {
+                try {
+                    const state = JSON.parse(savedState);
+                    if (state && typeof state === 'object' && Array.isArray(state.players)) {
+                        gameStarted = state.gameStarted ?? false;
+                        players = state.players ?? [];
+                        currentPlayerId = state.currentPlayerId ?? (players.length > 0 ? players[0].id : null);
+                        boardState = state.boardState ?? {};
+                        historyStack = state.historyStack ?? [];
+                        answeredCluesCount = state.answeredCluesCount ?? Object.values(boardState).filter(s => s?.state).length;
+                        turnCounter = state.turnCounter ?? 0;
+                        scoreHistory = state.scoreHistory ?? {};
+                        console.log("Game progress loaded.");
+                        updateUIbasedOnGameState();
+                        updateUndoButtonState();
+                        return true;
+                    }
+                } catch (e) {
+                    console.error("Error loading game progress:", e);
+                    localStorage.removeItem(STORAGE_KEY_GAME);
+                }
+            }
+            updateUIbasedOnGameState(); // Ensure UI reflects fresh state if load fails
+            updateUndoButtonState();
+            return false;
+        }
+
+
+        function updateUIbasedOnGameState() {
+            // ... (same as before)
+            const playerSetupElement = document.getElementById('player-setup');
+            if (!scorePanelElement || !boardElement || !startGameBtnElement || !resetScoresBtnElement || !newGameBtnElement || !showFinalJeopardyBtnElement || !victoryElement) {
+                 console.error("Required UI elements missing during state update.");
+                 return;
+            }
+
+            if (gameStarted) {
+                if (playerSetupElement) playerSetupElement.style.display = 'none';
+                scorePanelElement.style.display = 'flex';
+                generateBoard(); // Regenerate board based on loaded/current state
+                updatePlayerCards();
+                updateScoreDisplay();
+                startGameBtnElement.disabled = true;
+                resetScoresBtnElement.disabled = false;
+                newGameBtnElement.disabled = false; // Always enabled? Maybe disable during FJ?
+
+                if (answeredCluesCount >= totalClues) {
+                    showVictory(false);
+                } else {
+                    // Ensure DD is marked if somehow missing from loaded state
+                    if (!Object.values(boardState).some(s => s?.isDailyDouble)) {
+                         determineDailyDouble();
+                         // Don't save here, let next action save
+                    }
+                    victoryElement.style.display = 'none';
+                    showFinalJeopardyBtnElement.disabled = true;
+                }
+            } else {
+                // Game not started
+                if (playerSetupElement) playerSetupElement.style.display = 'flex';
+                scorePanelElement.style.display = 'none';
+                boardElement.style.display = 'none';
+                updatePlayerCards();
+                updateScoreDisplay();
+                startGameBtnElement.disabled = players.length === 0;
+                resetScoresBtnElement.disabled = true;
+                if(undoBtnElement) undoBtnElement.disabled = true;
+                showFinalJeopardyBtnElement.disabled = true;
+                victoryElement.style.display = 'none'; // Ensure hidden
+            }
+             drawScoreHistoryChart(); // Update chart based on current state
+        }
+
+
+        function showVictory(launchConfettiEffect = true) {
+            // ... (same as before)
+            if(victoryElement) victoryElement.style.display = 'block';
+            if(showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.disabled = false;
+            if (launchConfettiEffect) { launchConfetti(); }
+            if(boardElement) boardElement.style.display = 'none';
+        }
+
+        function launchConfetti() {
+            // ... (same as before)
+            const confettiCount = 100; const confettiContainer = document.body;
+            for (let i = 0; i < confettiCount; i++) {
+                const confetto = document.createElement('div'); confetto.className = 'confetti';
+                confetto.style.left = Math.random() * 100 + 'vw';
+                confetto.style.backgroundColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+                const animDuration = Math.random() * 3 + 2; confetto.style.animationDuration = animDuration + 's';
+                confetto.style.animationDelay = Math.random() * 0.5 + 's';
+                confettiContainer.appendChild(confetto);
+                setTimeout(() => { confetto.remove(); }, (animDuration + 0.5) * 1000);
+            }
+        }
+
+        function playSound(audioElement) {
+            // ... (same as before)
+            if (audioElement && typeof audioElement.play === 'function') {
+                audioElement.currentTime = 0;
+                audioElement.play().catch(e => console.warn("Audio play failed:", audioElement.id, e));
+            } else { console.warn("Invalid audio element:", audioElement); }
+        }
+
+        // --- Final Jeopardy Functions ---
+        // setupFinalJeopardy, renderHighScores, saveScoresToHighScores remain the same...
+        function setupFinalJeopardy() {
+            // ... (same as before)
+            if (finalJeopardyQuestions.length === 0) { alert("No Final Jeopardy questions available!"); return; }
+            const eligiblePlayers = players.filter(p => p.score > 0);
+            if (eligiblePlayers.length === 0) { alert("No players have a positive score for Final Jeopardy!"); showFinalResults(); return; }
+            finalJeopardyData = finalJeopardyQuestions[Math.floor(Math.random() * finalJeopardyQuestions.length)];
+            if (!finalCategoryElement || !finalQuestionElement || !revealFinalQuestionBtnElement || !submitFinalWagersBtnElement || !judgeFinalAnswersBtnElement || !finalWagersContainerElement || !finalJeopardySectionElement ) return;
+            finalCategoryElement.textContent = `Category: ${finalJeopardyData.category}`;
+            finalQuestionElement.textContent = finalJeopardyData.question;
+            finalQuestionElement.style.display = 'none';
+            revealFinalQuestionBtnElement.style.display = 'inline-block';
+            submitFinalWagersBtnElement.style.display = 'none';
+            judgeFinalAnswersBtnElement.style.display = 'none';
+            finalWagersContainerElement.innerHTML = '';
+            eligiblePlayers.forEach(player => {
+                const row = document.createElement('div'); row.className = 'wager-row';
+                const lbl = document.createElement('label'); lbl.htmlFor = `wager-${player.id}`; lbl.textContent = `${player.name} ($${player.score}):`;
+                const inp = document.createElement('input'); inp.type = 'number'; inp.id = `wager-${player.id}`; inp.dataset.playerId = player.id; inp.min = 0; inp.max = player.score; inp.placeholder = 'Enter wager'; inp.required = true;
+                row.appendChild(lbl); row.appendChild(inp); finalWagersContainerElement.appendChild(row);
+            });
+            finalJeopardySectionElement.style.display = 'block';
+            playSound(finalJeopardySound);
+            if(boardElement) boardElement.style.display = 'none';
+            if(scorePanelElement) scorePanelElement.style.display = 'none';
+            if(victoryElement) victoryElement.style.display = 'none';
+        }
+
+        // --- High Score Functions ---
+        // renderHighScores, saveScoresToHighScores remain the same...
+         function renderHighScores() {
+            if (!highScoresListElement) return;
+            const savedScores = JSON.parse(localStorage.getItem(STORAGE_KEY_SCORES) || '[]');
+            const sortedScores = savedScores.sort((a, b) => b.score - a.score).slice(0, 10);
+            if (sortedScores.length === 0) { highScoresListElement.innerHTML = '<li>No scores saved yet.</li>'; }
+            else { highScoresListElement.innerHTML = sortedScores.map((s, index) => `<li><span>${index + 1}. ${s.name} (${new Date(s.date || Date.now()).toLocaleDateString()})</span><span>$${s.score}</span></li>`).join(''); }
+        }
+        function saveScoresToHighScores() {
+            const scoresToSave = players.map(p => ({ name: p.name, score: p.score, date: Date.now() }));
+            if (scoresToSave.length === 0) return;
+            const existingScores = JSON.parse(localStorage.getItem(STORAGE_KEY_SCORES) || '[]');
+            const updatedScores = [...existingScores, ...scoresToSave];
+            localStorage.setItem(STORAGE_KEY_SCORES, JSON.stringify(updatedScores));
+            renderHighScores();
+            alert("Scores saved!");
+            if (resultsModalElement) resultsModalElement.classList.remove('show');
+            const highScoresTabButton = document.querySelector('.tab-button[data-tab="high-scores-tab"]');
+            if(highScoresTabButton) highScoresTabButton.click();
+        }
+
+        // --- Tab Navigation ---
+        // setupTabs remains the same...
+         function setupTabs() {
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetTabId = button.dataset.tab; if (!targetTabId) return;
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    button.classList.add('active');
+                    const activeContent = document.getElementById(targetTabId);
+                    if(activeContent) { activeContent.classList.add('active'); }
+                    else { console.warn("Tab content not found for:", targetTabId); }
+                    if (targetTabId === 'score-history-tab') { drawScoreHistoryChart(); }
+                    else if (targetTabId === 'high-scores-tab') { renderHighScores(); }
+                });
+            });
+            const initialActiveButton = document.querySelector('.tab-button.active');
+            if(initialActiveButton){ const initialTabId = initialActiveButton.dataset.tab; const initialContent = document.getElementById(initialTabId); if(initialContent) initialContent.classList.add('active'); }
+        }
+
+
+        // --- Score History Chart ---
+        // drawScoreHistoryChart remains the same...
+        function drawScoreHistoryChart() {
+            if (!scoreHistoryChartCanvas || !chartPlaceholderText) return;
+            const ctx = scoreHistoryChartCanvas.getContext('2d'); if (!ctx) return;
+            if (activeChart) { activeChart.destroy(); activeChart = null; }
+            const datasets = players.filter(player => scoreHistory[player.id] && scoreHistory[player.id].length > 0).map(player => {
+                const history = scoreHistory[player.id] || []; const formattedHistory = history.sort((a, b) => a.turn - b.turn);
+                if (formattedHistory.length > 0 && formattedHistory[0].turn !== 0) { formattedHistory.unshift({ turn: 0, score: 0 }); }
+                return { label: player.name, data: formattedHistory.map(entry => ({ x: entry.turn, y: entry.score })), borderColor: player.color, backgroundColor: player.color + '80', fill: false, tension: 0.1 };
+            });
+            if (datasets.length > 0) {
+                chartPlaceholderText.style.display = 'none'; scoreHistoryChartCanvas.style.display = 'block';
+                activeChart = new Chart(ctx, { type: 'line', data: { datasets }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'linear', title: { display: true, text: 'Turn Number' }, beginAtZero: true, ticks: { stepSize: 1 } }, y: { title: { display: true, text: 'Score ($)' }, beginAtZero: true } }, plugins: { title: { display: true, text: 'Score Progression Over Turns'} } } });
+            } else { chartPlaceholderText.style.display = 'block'; scoreHistoryChartCanvas.style.display = 'none'; }
+        }
+
+
+        function updateUndoButtonState() {
+            // ... (same as before)
+            if (undoBtnElement) { undoBtnElement.disabled = historyStack.length === 0; }
+        }
+
+        function showFinalResults() {
+            // ... (same as before)
+            if (!finalResultsElement || !resultsModalElement) return;
+            finalResultsElement.innerHTML = players.sort((a,b) => b.score - a.score).map(p => `<div>${p.name}: $${p.score}</div>`).join('');
+            resultsModalElement.classList.add('show');
+        }
+
+        // --- Event Listeners ---
+        // setupEventListeners and initializeGame remain the same...
+        function setupEventListeners() {
+             // Player Management
+            if(addPlayerBtnElement) addPlayerBtnElement.addEventListener('click', () => { /* ... same ... */
+                 if (!playerNameInputElement) return; const name = playerNameInputElement.value.trim(); if (!name) { alert("Please enter a player name."); return; } if (players.length >= PLAYER_COLORS.length) { alert("Maximum number of players reached."); return; } const id = Date.now().toString(36) + Math.random().toString(36).substring(2); players.push({ id, name, score: 0, color: PLAYER_COLORS[players.length % PLAYER_COLORS.length] }); playerNameInputElement.value = ''; updatePlayerCards(); if(startGameBtnElement) startGameBtnElement.disabled = false; playerNameInputElement.focus(); saveGameProgress();
+             });
+            if(startGameBtnElement) startGameBtnElement.addEventListener('click', () => { /* ... same ... */
+                if (players.length === 0) { alert("Add at least one player to start!"); return; } gameStarted = true; currentPlayerId = players[0]?.id; answeredCluesCount = 0; boardState = {}; historyStack = []; scoreHistory = {}; players.forEach(p => { p.score = 0; scoreHistory[p.id] = [{ turn: 0, score: 0 }]; }); turnCounter = 0; determineDailyDouble(); updateUIbasedOnGameState(); updateUndoButtonState(); if (musicToggleElement?.checked) { playSound(musicElement); } saveGameProgress();
+             });
+             // Score Controls
+            if(applyScoreBtnElement) applyScoreBtnElement.addEventListener('click', () => { /* ... same ... */
+                if (!currentPlayerId || !manualScoreInputElement) return; const targetScore = parseInt(manualScoreInputElement.value, 10); if (isNaN(targetScore)) { alert("Please enter a valid number for the score."); return; } const player = getPlayerById(currentPlayerId); if (player) { const delta = targetScore - player.score; updatePlayerScore(currentPlayerId, delta); manualScoreInputElement.value = ''; }
+             });
+            if(undoBtnElement) undoBtnElement.addEventListener('click', () => { /* ... same, includes card state revert ... */
+                const lastAction = historyStack.pop(); updateUndoButtonState();
+                if (lastAction?.action === 'score') {
+                    updatePlayerScore(lastAction.playerId, -lastAction.delta, true); // isUndo = true
+                    if (lastAction.cardKey && boardState[lastAction.cardKey]) {
+                        const cardElement = document.querySelector(`.card[data-state-key="${lastAction.cardKey}"]`);
+                        if (cardElement) { cardElement.classList.remove('disabled', 'correct', 'wrong'); const frontFace = cardElement.querySelector('.card-front'); if(frontFace) { frontFace.textContent = `$${cardElement.dataset.value}`; frontFace.classList.remove('empty-value'); } cardElement.addEventListener('click', handleCardClick); answeredCluesCount--; }
+                        boardState[lastAction.cardKey].state = null; boardState[lastAction.cardKey].playerId = null;
+                    } console.log(`Undo: Reversed score change for player ${lastAction.playerId}`); saveGameProgress();
+                } else if (lastAction) { historyStack.push(lastAction); updateUndoButtonState(); }
+             });
+            if(resetScoresBtnElement) resetScoresBtnElement.addEventListener('click', () => { /* ... same ... */
+                 if (confirm("Are you sure you want to reset all player scores to $0?")) { historyStack = []; scoreHistory = {}; players.forEach(p => { p.score = 0; scoreHistory[p.id] = [{ turn: 0, score: 0 }]; }); turnCounter = 0; updatePlayerCards(); updateScoreDisplay(); updateUndoButtonState(); drawScoreHistoryChart(); saveGameProgress(); alert("All scores reset to $0."); }
+             });
+            if(newGameBtnElement) newGameBtnElement.addEventListener('click', () => { /* ... same ... */
+                 if (confirm("Are you sure you want to start a completely new game?")) { localStorage.removeItem(STORAGE_KEY_GAME); players = []; currentPlayerId = null; gameStarted = false; boardState = {}; historyStack = []; scoreHistory = {}; answeredCluesCount = 0; currentWager = 0; turnCounter = 0; if (activeChart) { activeChart.destroy(); activeChart = null; } const playerSetupElement = document.getElementById('player-setup'); if (playerSetupElement) playerSetupElement.style.display = 'flex'; if (playerListElement) playerListElement.innerHTML = ''; if (scorePanelElement) scorePanelElement.style.display = 'none'; if (boardElement) { boardElement.style.display = 'none'; boardElement.innerHTML = ''; } if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none'; if (victoryElement) victoryElement.style.display = 'none'; if (resultsModalElement) resultsModalElement.classList.remove('show'); if (playerNameInputElement) playerNameInputElement.value = ''; if (startGameBtnElement) startGameBtnElement.disabled = true; if (showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.disabled = true; if (resetScoresBtnElement) resetScoresBtnElement.disabled = true; if(musicElement) musicElement.pause(); updateScoreDisplay(); updateUndoButtonState(); const gameTabButton = document.querySelector('.tab-button[data-tab="game-tab"]'); if(gameTabButton) gameTabButton.click(); alert("New game started. Add players."); }
+             });
+             // Music Toggle
+            if(musicToggleElement) musicToggleElement.addEventListener('change', () => { /* ... same ... */
+                 if (musicToggleElement.checked && gameStarted) { playSound(musicElement); } else if(musicElement) { musicElement.pause(); }
+             });
+             // Final Jeopardy Buttons
+            if(showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.addEventListener('click', setupFinalJeopardy);
+            if(revealFinalQuestionBtnElement) revealFinalQuestionBtnElement.addEventListener('click', () => { /* ... same ... */
+                 if (finalQuestionElement) finalQuestionElement.style.display = 'block'; revealFinalQuestionBtnElement.style.display = 'none'; if (submitFinalWagersBtnElement) submitFinalWagersBtnElement.style.display = 'inline-block'; if (submitFinalWagersBtnElement) submitFinalWagersBtnElement.disabled = false; const firstWagerInput = finalWagersContainerElement?.querySelector('input'); if(firstWagerInput) firstWagerInput.focus();
+             });
+            if(submitFinalWagersBtnElement) submitFinalWagersBtnElement.addEventListener('click', () => { /* ... same ... */
+                 let allWagersValid = true; finalWagersContainerElement?.querySelectorAll('.wager-row input').forEach(input => { const wager = parseInt(input.value, 10); const max = parseInt(input.max, 10); if (isNaN(wager) || wager < 0 || wager > max) { allWagersValid = false; input.style.border = '2px solid red'; } else { input.style.border = ''; input.disabled = true; } }); if (!allWagersValid) { alert("Please correct invalid wagers (must be between $0 and player's score)."); return; } submitFinalWagersBtnElement.disabled = true; if (judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.style.display = 'inline-block'; alert("Wagers locked in. Reveal the answers and judge!");
+             });
+            if(judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.addEventListener('click', () => { /* ... same ... */
+                finalWagersContainerElement?.querySelectorAll('.wager-row input').forEach(input => { const playerId = input.dataset.playerId; const wager = parseInt(input.value, 10); const player = getPlayerById(playerId); if (player && !isNaN(wager)) { const isCorrect = confirm(`Did ${player.name} answer correctly?`); const delta = isCorrect ? wager : -wager; updatePlayerScore(playerId, delta); } }); if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none'; if (judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.style.display = 'none'; showFinalResults(); launchConfetti(); saveGameProgress();
+             });
+             // Modal and High Scores
+            if(modalCloseElement) modalCloseElement.addEventListener('click', () => { if(resultsModalElement) resultsModalElement.classList.remove('show'); });
+            if(saveHighScoresBtnElement) saveHighScoresBtnElement.addEventListener('click', saveScoresToHighScores);
+        }
+
+        // --- Initialization ---
+        function initializeGame() {
+            console.log("Initializing Jeopardy Game v3...");
+            setupTabs();
+            setupEventListeners();
+            loadGameProgress(); // This calls updateUIbasedOnGameState
+            renderHighScores();
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeGame);
+
+    </script>
+</body>
+</html>
