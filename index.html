@@ -494,6 +494,8 @@
         <button class="tab-button" data-tab="high-scores-tab">High Scores</button>
         <label for="music-toggle">Music</label>
         <input type="checkbox" id="music-toggle" checked />
+        <label for="rotate-control-toggle">Rotate Control</label> <!-- NEW: Toggle for rotating control -->
+        <input type="checkbox" id="rotate-control-toggle" /> <!-- NEW: Toggle for rotating control -->
         <button id="show-final-jeopardy" disabled>Final Jeopardy</button>
     </div>
 
@@ -629,7 +631,7 @@
                 'This FSMA rule focuses on ensuring the safety of fresh fruits and vegetables during growing, harvesting, packing, and holding. (A: Produce Safety Rule)',
             ],
             'Allergens':   [
-                'Besides Tree Nuts, Peanuts, Milk, Eggs, Soy, Wheat, Fish, and Crustacean Shellfish, what is the 9th major allergen added in 2023? (A: Sesame)',
+                'Besides Tree Nuts, Peanuts, Milk, Eggs, Soy, Wheat, Fish, and Crustacean Shellfish, what is the 9th major US food allergen added in 2023? (A: Sesame)',
                 'FALCPA requires allergen declarations to be in clear, plain language, often using the word "Contains" followed by the allergen name(s). What does FALCPA stand for? (A: Food Allergen Labeling and Consumer Protection Act)',
                 'An effective Allergen Control Plan includes preventing this, the unintentional incorporation of an allergen into a food. (A: Cross-contact)',
                 'Cleaning procedures must be validated to ensure they effectively remove allergen ________ from shared equipment. (A: Residues)',
@@ -662,13 +664,16 @@
         let players = []; let currentPlayerId = null; let gameStarted = false; let boardState = {};
         let historyStack = []; let scoreHistory = {}; let currentWager = 0; let answeredCluesCount = 0;
         let turnCounter = 0; let playerTurnIndex = 0; let activeChart = null; let activeCardElement = null;
+        let rotateControlEnabled = false; // NEW: Control rotation setting
 
         // --- Calculated Values ---
         const numCategories = gameData.categories.length; const numCluesPerCat = gameData.categories[0]?.clues?.length ?? 0; const totalClues = numCategories * numCluesPerCat;
 
         // --- DOM References ---
         // (References remain the same as previous version)
-        const boardElement = document.getElementById('board'); const victoryElement = document.getElementById('victory'); const musicElement = document.getElementById('bg-music'); const musicToggleElement = document.getElementById('music-toggle'); const addPlayerBtnElement = document.getElementById('add-player'); const startGameBtnElement = document.getElementById('start-game'); const playerNameInputElement = document.getElementById('player-name'); const playerListElement = document.getElementById('player-list'); const scorePanelElement = document.getElementById('score-panel'); const scoreDisplayElement = document.getElementById('score-display'); const manualScoreInputElement = document.getElementById('manual-score'); const applyScoreBtnElement = document.getElementById('apply-score'); const undoBtnElement = document.getElementById('undo-score'); const resetScoresBtnElement = document.getElementById('reset-all-scores'); const newGameBtnElement = document.getElementById('new-game'); const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy'); const finalJeopardySectionElement = document.getElementById('final-jeopardy'); const finalCategoryElement = document.getElementById('final-category'); const finalQuestionElement = document.getElementById('final-question'); const revealFinalQuestionBtnElement = document.getElementById('reveal-final-question'); const submitFinalWagersBtnElement = document.getElementById('submit-final-wagers'); const judgeFinalAnswersBtnElement = document.getElementById('judge-final-answers'); const finalWagersContainerElement = document.getElementById('final-wagers'); const resultsModalElement = document.getElementById('results-modal'); const finalResultsElement = document.getElementById('final-results'); const saveHighScoresBtnElement = document.getElementById('save-high-scores'); const modalCloseElement = document.querySelector('.modal-close'); const scoreHistoryContainerElement = document.getElementById('score-history-container'); const scoreHistoryChartCanvas = document.getElementById('score-history-chart'); const chartPlaceholderText = document.getElementById('chart-placeholder-text'); const highScoresListElement = document.getElementById('high-scores-list'); const correctSound = document.getElementById('correct-sound'); const wrongSound = document.getElementById('wrong-sound'); const dailyDoubleSound = document.getElementById('daily-double-sound'); const finalJeopardySound = document.getElementById('final_jeopardy.mp3'); const stealControlsElement = document.getElementById('steal-controls'); const noOtherTakersBtnElement = document.getElementById('no-other-takers-btn'); const questionDisplayAreaElement = document.getElementById('question-display-area'); const currentQuestionTextElement = document.getElementById('current-question-text');
+        const boardElement = document.getElementById('board'); const victoryElement = document.getElementById('victory'); const musicElement = document.getElementById('bg-music'); const musicToggleElement = document.getElementById('music-toggle');
+        const rotateControlToggleElement = document.getElementById('rotate-control-toggle'); // NEW DOM reference
+        const addPlayerBtnElement = document.getElementById('add-player'); const startGameBtnElement = document.getElementById('start-game'); const playerNameInputElement = document.getElementById('player-name'); const playerListElement = document.getElementById('player-list'); const scorePanelElement = document.getElementById('score-panel'); const scoreDisplayElement = document.getElementById('score-display'); const manualScoreInputElement = document.getElementById('manual-score'); const applyScoreBtnElement = document.getElementById('apply-score'); const undoBtnElement = document.getElementById('undo-score'); const resetScoresBtnElement = document.getElementById('reset-all-scores'); const newGameBtnElement = document.getElementById('new-game'); const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy'); const finalJeopardySectionElement = document.getElementById('final-jeopardy'); const finalCategoryElement = document.getElementById('final-category'); const finalQuestionElement = document.getElementById('final-question'); const revealFinalQuestionBtnElement = document.getElementById('reveal-final-question'); const submitFinalWagersBtnElement = document.getElementById('submit-final-wagers'); const judgeFinalAnswersBtnElement = document.getElementById('judge-final-answers'); const finalWagersContainerElement = document.getElementById('final-wagers'); const resultsModalElement = document.getElementById('results-modal'); const finalResultsElement = document.getElementById('final-results'); const saveHighScoresBtnElement = document.getElementById('save-high-scores'); const modalCloseElement = document.querySelector('.modal-close'); const scoreHistoryContainerElement = document.getElementById('score-history-container'); const scoreHistoryChartCanvas = document.getElementById('score-history-chart'); const chartPlaceholderText = document.getElementById('chart-placeholder-text'); const highScoresListElement = document.getElementById('high-scores-list'); const correctSound = document.getElementById('correct-sound'); const wrongSound = document.getElementById('wrong-sound'); const dailyDoubleSound = document.getElementById('daily-double-sound'); const finalJeopardySound = document.getElementById('final_jeopardy.mp3'); const stealControlsElement = document.getElementById('steal-controls'); const noOtherTakersBtnElement = document.getElementById('no-other-takers-btn'); const questionDisplayAreaElement = document.getElementById('question-display-area'); const currentQuestionTextElement = document.getElementById('current-question-text');
 
         // --- Utility Functions ---
         function getPlayerById(playerId) { return players.find(p => p.id === playerId); }
@@ -676,7 +681,7 @@
         function launchConfetti() { const cC=100; const cCo=document.body; for (let i = 0; i < cC; i++) { const c = document.createElement('div'); c.className = 'confetti'; c.style.left = Math.random() * 100 + 'vw'; c.style.backgroundColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)]; const aD = Math.random() * 3 + 2; c.style.animationDuration = aD + 's'; c.style.animationDelay = Math.random() * 0.5 + 's'; cCo.appendChild(c); setTimeout(() => { c.remove(); }, (aD + 1) * 1000); } }
 
         function speakQuestion(text) {
-            const musicToggleElement = document.getElementById('music-toggle'); // Ensure this ID is correct
+            const musicToggleElement = document.getElementById('music-toggle'); 
 
             if (!('speechSynthesis' in window)) {
                 console.warn('Speech synthesis not supported by this browser.');
@@ -688,13 +693,12 @@
                 return;
             }
 
-            // Optional: Cancel any ongoing speech before starting a new one
             window.speechSynthesis.cancel();
 
-            const utterance = new SpeechSynthesisUtterance(text);
-            // Optional: You can configure utterance properties here (e.g., lang, rate, pitch)
-            // utterance.lang = 'en-US';
-            // utterance.rate = 1.0; 
+            // Replace sequences of one or more underscores with "Blank"
+            const processedText = text.replace(/_+/g, 'Blank'); // Regex /_+/g matches one or more underscores globally
+
+            const utterance = new SpeechSynthesisUtterance(processedText);
             
             window.speechSynthesis.speak(utterance);
         }
@@ -1012,9 +1016,10 @@
                 currentWager = 0; 
                 boardCleared = answeredCluesCount >= totalClues; 
                 if (!boardCleared) { 
-                    if (isDailyDouble) { 
+                    // MODIFIED LOGIC: If Rotate Control is enabled OR it's a Daily Double, rotate the turn
+                    if (isDailyDouble || rotateControlEnabled) { 
                         nextPlayerTurnRegular(); 
-                    } else { 
+                    } else { // Otherwise, the current player keeps control
                         setActivePlayer(playerBeingJudgedId, false); 
                     } 
                 } 
@@ -1077,8 +1082,78 @@
         function determineDailyDouble() { if (totalClues === 0) return; Object.keys(boardState).forEach(key => { if (boardState[key]) boardState[key].isDailyDouble = false; }); const potentialLocations = []; for (let r = 1; r < numCluesPerCat; r++) { for (let c = 0; c < numCategories; c++) { const k = `${c}-${r}`; if (!boardState[k] || (!boardState[k].state && !boardState[k].failedPlayerIds?.length)) { potentialLocations.push(k); } } } if (potentialLocations.length > 0) { const dd1Index = Math.floor(Math.random() * potentialLocations.length); const dd1Key = potentialLocations.splice(dd1Index, 1)[0]; if (!boardState[dd1Key]) boardState[dd1Key] = {}; boardState[dd1Key].isDailyDouble = true; console.log("DD1 location:", dd1Key); if (numCategories >= 5 && numCluesPerCat >= 3 && potentialLocations.length > 0) { const dd2Index = Math.floor(Math.random() * potentialLocations.length); const dd2Key = potentialLocations[dd2Index]; if (!boardState[dd2Key]) boardState[dd2Key] = {}; boardState[dd2Key].isDailyDouble = true; console.log("DD2 location:", dd2Key); } } else console.log("Could not place Daily Double(s) - no eligible locations."); }
 
         // --- Game State & UI Management ---
-        function saveGameProgress() { if (!gameStarted && players.length === 0 && !Object.keys(boardState).length) return; const state = { gameStarted, players: players.map(p => ({ ...p })), currentPlayerId, playerTurnIndex, boardState: JSON.parse(JSON.stringify(boardState)), historyStack: [...historyStack], answeredCluesCount, turnCounter, scoreHistory: JSON.parse(JSON.stringify(scoreHistory)) }; try { localStorage.setItem(STORAGE_KEY_GAME, JSON.stringify(state)); } catch (e) { console.error("Save Error:", e); } }
-        function loadGameProgress() { const savedState = localStorage.getItem(STORAGE_KEY_GAME); if (savedState) { try { const state = JSON.parse(savedState); if (state && typeof state === 'object' && Array.isArray(state.players)) { gameStarted = state.gameStarted ?? false; players = state.players ?? []; currentPlayerId = state.currentPlayerId ?? (players.length > 0 ? players[0].id : null); playerTurnIndex = state.playerTurnIndex ?? (players.findIndex(p => p.id === currentPlayerId) ?? 0); boardState = state.boardState ?? {}; historyStack = state.historyStack ?? []; answeredCluesCount = state.answeredCluesCount ?? Object.values(boardState).filter(s => s?.state === 'correct' || s?.state === 'wrong').length; turnCounter = state.turnCounter ?? 0; scoreHistory = state.scoreHistory ?? {}; activeCardElement = null; console.log("Game loaded."); updateUIbasedOnGameState(); updateUndoButtonState(); const pendingKey = Object.keys(boardState).find(key => boardState[key]?.failedPlayerIds?.length > 0 && !boardState[key].state); if (pendingKey) { activeCardElement = document.getElementById(`card-${pendingKey.replace('-', '-')}`); if (activeCardElement) { console.log("Loaded into pending state:", pendingKey); enablePlayerSelectionMode(); } else console.error("Could not find pending card element:", pendingKey); } else disablePlayerSelectionMode(); return true; } else { console.warn("Invalid loaded state structure."); localStorage.removeItem(STORAGE_KEY_GAME); } } catch (e) { console.error("Error parsing saved state:", e); localStorage.removeItem(STORAGE_KEY_GAME); } } updateUIbasedOnGameState(); updateUndoButtonState(); return false; }
+        function saveGameProgress() { 
+            if (!gameStarted && players.length === 0 && !Object.keys(boardState).length) return; 
+            const state = { 
+                gameStarted, 
+                players: players.map(p => ({ ...p })), 
+                currentPlayerId, 
+                playerTurnIndex, 
+                boardState: JSON.parse(JSON.stringify(boardState)), 
+                historyStack: [...historyStack], 
+                answeredCluesCount, 
+                turnCounter, 
+                scoreHistory: JSON.parse(JSON.stringify(scoreHistory)),
+                rotateControlEnabled // NEW: Save this state
+            }; 
+            try { 
+                localStorage.setItem(STORAGE_KEY_GAME, JSON.stringify(state)); 
+            } catch (e) { 
+                console.error("Save Error:", e); 
+            } 
+        }
+        function loadGameProgress() { 
+            const savedState = localStorage.getItem(STORAGE_KEY_GAME); 
+            if (savedState) { 
+                try { 
+                    const state = JSON.parse(savedState); 
+                    if (state && typeof state === 'object' && Array.isArray(state.players)) { 
+                        gameStarted = state.gameStarted ?? false; 
+                        players = state.players ?? []; 
+                        currentPlayerId = state.currentPlayerId ?? (players.length > 0 ? players[0].id : null); 
+                        playerTurnIndex = state.playerTurnIndex ?? (players.findIndex(p => p.id === currentPlayerId) ?? 0); 
+                        boardState = state.boardState ?? {}; 
+                        historyStack = state.historyStack ?? []; 
+                        answeredCluesCount = state.answeredCluesCount ?? Object.values(boardState).filter(s => s?.state === 'correct' || s?.state === 'wrong').length; 
+                        turnCounter = state.turnCounter ?? 0; 
+                        scoreHistory = state.scoreHistory ?? {}; 
+                        rotateControlEnabled = state.rotateControlEnabled ?? false; // NEW: Load this state
+                        activeCardElement = null; 
+                        console.log("Game loaded."); 
+                        updateUIbasedOnGameState(); 
+                        updateUndoButtonState(); 
+
+                        // NEW: Set the toggle state visually after loading
+                        if (rotateControlToggleElement) {
+                            rotateControlToggleElement.checked = rotateControlEnabled;
+                        }
+
+                        const pendingKey = Object.keys(boardState).find(key => boardState[key]?.failedPlayerIds?.length > 0 && !boardState[key].state); 
+                        if (pendingKey) { 
+                            activeCardElement = document.getElementById(`card-${pendingKey.replace('-', '-')}`); 
+                            if (activeCardElement) { 
+                                console.log("Loaded into pending state:", pendingKey); 
+                                enablePlayerSelectionMode(); 
+                            } else console.error("Could not find pending card element:", pendingKey); 
+                        } else disablePlayerSelectionMode(); 
+                        return true; 
+                    } else { 
+                        console.warn("Invalid loaded state structure."); 
+                        localStorage.removeItem(STORAGE_KEY_GAME); 
+                    } 
+                } catch (e) { 
+                    console.error("Error parsing saved state:", e); 
+                    localStorage.removeItem(STORAGE_KEY_GAME); 
+                } 
+            } 
+            updateUIbasedOnGameState(); 
+            updateUndoButtonState(); 
+            // Ensure toggle reflects default state if no saved state
+            if (rotateControlToggleElement) {
+                rotateControlToggleElement.checked = rotateControlEnabled;
+            }
+            return false; 
+        }
         function updateUIbasedOnGameState() { const pSE = document.getElementById('player-setup'); if (!scorePanelElement || !boardElement || !startGameBtnElement || !resetScoresBtnElement || !newGameBtnElement || !showFinalJeopardyBtnElement || !finalJeopardySectionElement) { console.error("Required UI elements missing."); return; } hideQuestionDisplay(); if (gameStarted) { if (pSE) pSE.style.display = 'none'; scorePanelElement.style.display = 'flex'; const isFJActive = finalJeopardySectionElement.style.display === 'block'; if (!isFJActive) { generateBoard(); if (answeredCluesCount >= totalClues) { console.log("Loading game state where board is clear. Starting Final Jeopardy."); if (boardElement) boardElement.style.display = 'none'; setupFinalJeopardy(); return; } else { if(victoryElement) victoryElement.style.display = 'none'; showFinalJeopardyBtnElement.disabled = true; const needsDDDetermination = !Object.values(boardState).some(s => s?.isDailyDouble); if (needsDDDetermination && answeredCluesCount < totalClues) { console.log("Determining Daily Double(s) on load as none were found."); determineDailyDouble(); saveGameProgress(); generateBoard(); } } } else { if(boardElement) boardElement.style.display = 'none'; showFinalJeopardyBtnElement.disabled = true; } updatePlayerCards(); updateScoreDisplay(); startGameBtnElement.disabled = true; resetScoresBtnElement.disabled = false; newGameBtnElement.disabled = false; } else { if (pSE) pSE.style.display = 'flex'; scorePanelElement.style.display = 'none'; boardElement.style.display = 'none'; updatePlayerCards(); updateScoreDisplay(); startGameBtnElement.disabled = players.length === 0; resetScoresBtnElement.disabled = true; if (undoBtnElement) undoBtnElement.disabled = true; showFinalJeopardyBtnElement.disabled = true; finalJeopardySectionElement.style.display = 'none'; if(victoryElement) victoryElement.style.display = 'none'; if(musicElement) musicElement.pause(); disablePlayerSelectionMode(); } drawScoreHistoryChart(); }
         function setupFinalJeopardy() { // MODIFIED - Uses separate Q/A
              if (finalJeopardySectionElement.style.display === 'block') { console.log("setupFinalJeopardy called but FJ already visible. Aborting."); return; } if (finalJeopardyQuestions.length === 0) { alert("No Final Jeopardy questions available!"); return; } const eligiblePlayers = players.filter(p => p.score > 0); if (eligiblePlayers.length === 0) { alert("No players have a positive score eligible for Final Jeopardy!"); showFinalResults(); return; } finalJeopardyData = finalJeopardyQuestions[Math.floor(Math.random() * finalJeopardyQuestions.length)]; if (!finalCategoryElement || !finalQuestionElement || !revealFinalQuestionBtnElement || !submitFinalWagersBtnElement || !judgeFinalAnswersBtnElement || !finalWagersContainerElement || !finalJeopardySectionElement ) { console.error("Final Jeopardy UI elements missing."); return; } console.log("Setting up Final Jeopardy..."); hideQuestionDisplay(); disablePlayerSelectionMode(); activeCardElement = null; finalCategoryElement.textContent = `Category: ${finalJeopardyData.category}`; finalQuestionElement.textContent = finalJeopardyData.question; // <<< Display only question
@@ -1125,6 +1200,14 @@
             if(resetScoresBtnElement) resetScoresBtnElement.addEventListener('click', () => { if (confirm("Are you sure you want to reset all player scores to $0? This cannot be undone.")) { historyStack = []; scoreHistory = {}; players.forEach(p => { p.score = 0; scoreHistory[p.id] = [{ turn: 0, score: 0 }]; }); turnCounter = 0; updatePlayerCards(); updateScoreDisplay(); updateUndoButtonState(); drawScoreHistoryChart(); saveGameProgress(); alert("All player scores have been reset to $0."); hideQuestionDisplay();} });
             if(newGameBtnElement) newGameBtnElement.addEventListener('click', () => { if (confirm("Are you sure you want to start a completely new game? All current progress (players, scores, board) will be lost.")) { localStorage.removeItem(STORAGE_KEY_GAME); players = []; currentPlayerId = null; gameStarted = false; boardState = {}; historyStack = []; scoreHistory = {}; answeredCluesCount = 0; currentWager = 0; turnCounter = 0; playerTurnIndex = 0; activeCardElement = null; if (activeChart) { activeChart.destroy(); activeChart = null; } const pSE = document.getElementById('player-setup'); if (pSE) pSE.style.display = 'flex'; if (playerListElement) playerListElement.innerHTML = ''; if (scorePanelElement) scorePanelElement.style.display = 'none'; if (boardElement) { boardElement.style.display = 'none'; boardElement.innerHTML = ''; } if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none'; if (victoryElement) victoryElement.style.display = 'none'; if (resultsModalElement) resultsModalElement.classList.remove('show'); if (playerNameInputElement) playerNameInputElement.value = ''; if (startGameBtnElement) startGameBtnElement.disabled = true; if (showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.disabled = true; if (resetScoresBtnElement) resetScoresBtnElement.disabled = true; if (undoBtnElement) undoBtnElement.disabled = true; if(musicElement) { musicElement.pause(); musicElement.currentTime = 0; } disablePlayerSelectionMode(); updateScoreDisplay(); updateUndoButtonState(); hideQuestionDisplay(); const gameTabButton = document.querySelector('.tab-button[data-tab="game-tab"]'); if(gameTabButton && !gameTabButton.classList.contains('active')) gameTabButton.click(); alert("New game started. Please add players."); } });
             if(musicToggleElement) musicToggleElement.addEventListener('change', () => { if (musicToggleElement.checked && gameStarted && musicElement) { if (musicElement.paused) { playSound(musicElement); } } else if(musicElement) { musicElement.pause(); } });
+            // NEW Event Listener for rotate control
+            if(rotateControlToggleElement) {
+                rotateControlToggleElement.addEventListener('change', () => {
+                    rotateControlEnabled = rotateControlToggleElement.checked;
+                    console.log(`Rotate Control is now: ${rotateControlEnabled ? 'Enabled' : 'Disabled'}`);
+                    saveGameProgress(); // Save the new setting
+                });
+            }
             if(showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.addEventListener('click', setupFinalJeopardy); // Kept, but button is disabled
             if(revealFinalQuestionBtnElement) revealFinalQuestionBtnElement.addEventListener('click', () => { 
                 if (finalQuestionElement) {
