@@ -550,7 +550,11 @@
             </div>
         </section>
 
-        <!-- Audio Elements -->
+        <!-- 
+            NOTE: Audio files are loaded from web URLs (like wikimedia.org) instead of local files.
+            Browsers block web pages from accessing local files (like 'C:\Users\...\Jeopardy.mp3') for security reasons.
+            Using web URLs ensures the sound will work for anyone running the game.
+        -->
         <audio id="bg-music" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Jeopardy_Think_Music.ogg" loop preload="auto"></audio>
         <audio id="correct-sound" src="https://upload.wikimedia.org/wikipedia/commons/c/c7/Jeopardy-correct-answer.ogg" preload="auto"></audio>
         <audio id="wrong-sound" src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Jeopardy-wrong-answer-2.ogg" preload="auto"></audio>
@@ -2110,4 +2114,4 @@
     <!-- ********** END COMPLETE SCRIPT ********** -->
 
 </body>
-</html>
+</ht
