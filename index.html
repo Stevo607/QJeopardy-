@@ -1152,13 +1152,13 @@
                     } else {
                         revealAnswerBtn.style.display = 'inline-block'; // Show the reveal button
                     }
-                    // MODIFIED: Added call to speakQuestion here
+                    
                     revealAnswerBtn.onclick = (e) => {
                         e.stopPropagation();
                         const cardBack = card.querySelector('.card-back');
                         const answerText = cardBack?.dataset?.answer; // Get the answer text
                         if (answerText) {
-                            speakQuestion(answerText); // Speak the answer
+                            speakQuestion(`What is ${answerText}`); // Speak the answer with prefix
                         }
                         revealCardAnswer(card); // Then reveal it on the card
                     };
