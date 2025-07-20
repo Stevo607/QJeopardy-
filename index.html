@@ -1,6 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quality Jeopardy - Corrected</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Basic reset and box-sizing */
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* CSS Variables for theming */
+        :root {
+            --bg: #0b2345;             /* page background */
+            --fg: #ffffff;             /* default text colour */
+            --card-bg: #1e3a8a;        /* card / category background */
+            --flip-duration: .6s;      /* Card flip animation speed */
+            --score-bg: #02132c;       /* Score panel background */
+            --correct-bg: #d4edda;     /* Background for correctly answered cards */
+            --wrong-bg: #f8d7da;       /* Background for incorrectly answered cards */
+            --jeopardy-border: 4px solid #ffeb3b; /* Potential border style */
+            --player-1-color: #4caf50;  /* Player 1 color */
+            --player-2-color: #2196f3;  /* Player 2 color */
+            --player-3-color: #ff9800;  /* Player 3 color */
+            --player-4-color: #e91e63;  /* Player 4 color */
+            --active-player-bg: rgba(255, 255, 255, 0.2); /* Active player background */
+            --disabled-card-bg: #4a4a4a;/* Added for DD visibility */
+            --selectable-player-border: 3px dashed yellow; /* For player selection during steal */
+            --pending-steal-shadow: 0 0 15px yellow; /* Glow for pending card */
+            --failed-attempt-border: 2px solid #dc3545; /* Border for failed player during steal */
+            --host-selectable-hover-bg: rgba(255, 255, 255, 0.1); /* Subtle hover for host intervention */
+            --question-display-bg: rgba(0, 0, 0, 0.2); /* Background for the new question area */
+        }
+
+        /* Body styles */
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.4;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+        }
+
+        /* -------- Layout Wrapper -------- */
+        #game-controls-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            max-width: 1000px;
+            margin: 1.5rem auto 1rem auto;
+        }
+
+        /* -------- Player Panel -------- */
+        #player-panel {
+            background: var(--score-bg);
+            padding: 1rem; /* Keep panel padding */
+            border-radius: 8px;
+            flex: 1 1 400px;
+            max-width: 450px;
+            min-width: unset;
+        }
+
+        #player-setup {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        #player-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem; /* <<< REDUCED GAP between cards */
+            justify-content: center;
+            min-height: 50px; /* Keep some min height */
+        }
+
+        .player-card {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.5rem; /* <<< REDUCED PADDING inside card */
+            border-radius: 6px; /* Slightly smaller radius */
+            width: 125px; /* <<< REDUCED WIDTH */
+            position: relative;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            cursor: default;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            min-height: 80px; /* Add min-height to prevent collapse */
+        }
+
+        /* Hover/Active/Selectable styles remain the same */
+        .player-card.host-selectable:hover { background-color: var(--host-selectable-hover-bg); transform: scale(1.02); }
+        .player-card.active-player { background: var(--active-player-bg); border-color: #ffeb3b; box-shadow: 0 0 10px rgba(255, 255, 255, 0.3); transform: scale(1.05); }
+        .player-card.active-player:hover { transform: scale(1.05); }
+        .player-card.selectable-player { cursor: pointer; border: var(--selectable-player-border); opacity: 0.85; }
+        .player-card.selectable-player:hover { opacity: 1; transform: scale(1.03); box-shadow: 0 0 8px yellow; background-color: var(--active-player-bg); }
+        .player-card.failed-attempt { opacity: 0.5; cursor: not-allowed !important; border: var(--failed-attempt-border); }
+        .player-card.failed-attempt:hover { background-color: rgba(0, 0, 0, 0.3); transform: none; }
+
+
+        .player-name {
+            font-weight: bold;
+            font-size: 0.9rem; /* <<< Adjusted size */
+            margin-bottom: 0.2rem; /* <<< Adjusted spacing */
+            word-break: break-word;
+            line-height: 1.2; /* Adjust line height if names wrap */
+        }
+
+        .player-score {
+            font-size: 1.2rem; /* <<< Adjusted size */
+        }
+
+        .player-indicator {
+            position: absolute;
+            top: 4px; /* Adjust position */
+            right: 4px;
+            width: 10px; /* Smaller indicator */
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        /* -------- Score panel -------- */
+        #score-panel {
+            background: var(--score-bg);
+            color: var(--fg);
+            padding: 1rem;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: .75rem;
+            flex: 1 1 400px;
+            max-width: 450px;
+             min-width: 280px;
+        }
+
+        #score-display {
+            font-size: 1.3rem;
+            text-align: center;
+            font-weight: bold;
+            min-height: 2em;
+            background-color: rgba(0,0,0,0.2);
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+         /* Style for the status text */
+        #score-display .status-text {
+            display: block; /* Put on new line */
+            font-size: 0.9rem;
+            font-weight: normal;
+            color: #ffeb3b; /* Yellow text */
+            margin-top: 0.3rem;
+        }
+
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: .75rem;
+        }
+
+        /* Specific controls group for the 'No Other Takers' button */
+        #steal-controls {
+            margin-top: 0.5rem; /* Add some space */
+        }
+        #no-other-takers-btn {
+             background-color: #6c757d; /* Greyish color */
+        }
+
+        /* General input/button styling */
+        input[type=number],
+        input[type=text],
+        button {
+            padding: .4rem .6rem;
+            font-size: .9rem;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            color: #333;
+            vertical-align: middle; /* Align elements nicely on the same line */
+        }
+
+        /* General button styling (applied to ALL buttons) */
+        button {
+            cursor: pointer;
+            background-color: var(--card-bg);
+            color: var(--fg);
+            border: 1px solid var(--fg); /* Default border */
+            transition: background-color 0.3s;
+            /* Padding and border-radius are set above */
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #2f4c9c;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        input[type=number] { width: 100px; }
+        input[type=checkbox] { width: auto; height: auto; margin-right: 5px; vertical-align: middle; cursor: pointer; }
+        label[for="music-toggle"] { vertical-align: middle; cursor: pointer; margin-left: 0.5rem; /* Add space before Music label */ }
+
+        /* -------- NEW: Question Display Area -------- */
+        #question-display-area {
+            display: none; /* Hidden by default */
+            max-width: 1000px; /* Match board width */
+            margin: 1rem auto; /* Space above and below */
+            padding: 1.2rem; /* Increased padding */
+            background-color: var(--question-display-bg);
+            color: var(--fg);
+            border-radius: 8px;
+            min-height: 100px; /* Ensure it has some height */
+            text-align: left; /* Left align question text */
+        }
+
+        #current-question-text {
+            font-size: 1.4rem; /* Slightly larger font size */
+            line-height: 1.5;
+            max-height: 200px; /* Limit height and allow scroll if needed */
+            overflow-y: auto;
+        }
+
+        /* -------- Board & Card -------- */
+        #board {
+            display: grid;
+            gap: 4px;
+            max-width: 1000px;
+            margin: 0 auto 1.5rem auto; /* Remove top margin, add bottom */
+        }
+
+        .category {
+            background: var(--card-bg);
+            padding: 1rem;
+            text-align: center;
+            font-weight: 700;
+            color: #ffeb3b;
+            cursor: default;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            perspective: 1000px;
+            cursor: pointer;
+            position: relative;
+            min-height: 110px;
+        }
+
+        .card.disabled {
+            pointer-events: none;
+            cursor: default;
+            opacity: 0.6; /* Make disabled cards slightly faded */
+        }
+        /* Style for card when it's open for another player */
+        .card.pending-steal {
+             box-shadow: var(--pending-steal-shadow); /* Yellow glow */
+             cursor: default; /* Shouldn't be clickable directly */
+             pointer-events: none; /* Prevent clicks on the card itself */
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transition: transform var(--flip-duration);
+        }
+
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            backface-visibility: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            padding: .5rem;
+            border-radius: 4px;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        .card-front {
+            background: var(--card-bg);
+            color: #ffeb3b;
+            font-weight: 700;
+        }
+
+        /* Style for the front of answered cards */
+        .card-front.empty-value {
+            background: var(--disabled-card-bg);
+            color: #888;
+        }
+         /* Style for front of cards marked DD but not answered */
+         .card.daily-double-marker .card-front {
+              /* Optional: Add a subtle visual indicator for DD */
+              /* border-left: 5px solid gold; */
+         }
+
+        .card-back {
+            background: #ffffff;
+            color: #000000;
+            transform: rotateY(180deg);
+            justify-content: space-around; /* Use space-around for better vertical spacing */
+            font-size: clamp(.75rem, 1.6vw, 1.0rem); /* Font size adjusted in previous step */
+            overflow-y: auto;
+            padding: .75rem;
+            line-height: 1.3; /* Optional: Adjust line spacing */
+        }
+
+        .question-text { /* Text on the card back */
+            margin-bottom: 0.5rem;
+            flex-grow: 1; /* Allow question to take up space */
+            overflow-y: auto; /* Scroll if needed */
+            max-height: 75%; /* Allow slightly more height for text */
+            width: 100%; /* Ensure it takes width */
+            font-size: clamp(.75rem, 1.6vw, 1.0rem); /* Keep original size */
+        }
+
+        .card.correct .card-front.empty-value,
+        .card.correct .card-back {
+            background: var(--correct-bg);
+            color: #155724;
+        }
+
+        .card.wrong .card-front.empty-value,
+        .card.wrong .card-back {
+            background: var(--wrong-bg);
+            color: #721c24;
+        }
+
+        /* Prevent hover on disabled/pending cards */
+        .card:not(.disabled):not(.flipped):not(.pending-steal):hover .card-front {
+            outline: 2px solid #fde047;
+            transform: scale(1.05);
+            transition: transform 0.2s ease, outline 0.2s ease;
+        }
+
+        .judge-buttons {
+            margin-top: auto; /* Push to bottom */
+            padding-top: .5rem;
+            display: flex;
+            flex-direction: column; /* Change to column */
+            gap: .5rem; /* Gap between the "Reveal Answer" button and the new div */
+            align-items: center; /* Center items horizontally */
+            flex-shrink: 0;
+            width: 100%;
+        }
+
+        .correct-wrong-buttons {
+            display: flex;
+            gap: .5rem; /* Gap between correct and wrong buttons */
+            justify-content: center; /* Center correct/wrong buttons within their wrapper */
+            width: 100%; /* Ensure it takes full width for centering */
+        }
+
+        .judge-buttons button {
+            /* These buttons use the general button styling now */
+             white-space: nowrap;
+             font-size: clamp(.7rem, 2vw, .9rem);
+             padding: .4rem .6rem; /* Override general padding if needed */
+        }
+
+        .correct-btn { background-color: #28a745; color: white; border-color: #28a745;}
+        .wrong-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .reveal-answer-btn { background-color: #007bff; color: white; border-color: #007bff; } /* Style for new button */
+
+
+        /* -------- Other Sections -------- */
+        /* #victory { display: none; ... } */ /* Victory message is removed/unused */
+        #final-jeopardy { display: none; max-width: 800px; margin: 1rem auto; background: #1e3a8a; padding: 2rem; border-radius: 8px; border: var(--jeopardy-border); text-align: center; }
+        #final-jeopardy h2 { color: #ffeb3b; font-size: 2rem; margin-bottom: 1rem; }
+        #final-category { font-size: 1.5rem; margin-bottom: 1rem; font-weight: bold; }
+        #final-question { background: #fff; color: #000; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0; font-size: 1.4rem; line-height: 1.5; }
+        .final-wagers { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem; align-items: center; }
+        .wager-row { display: flex; justify-content: center; align-items: center; gap: 1rem; width: 100%; max-width: 400px; }
+        .wager-row label { flex: 1; text-align: right; font-weight: bold; }
+        .wager-row input { flex: 1; max-width: 150px; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); align-items: center; justify-content: center; }
+        .modal.show { display: flex; }
+        .modal-content { background-color: var(--score-bg); padding: 2rem; border-radius: 8px; max-width: 600px; width: 90%; position: relative; text-align: center; }
+        .modal-close { position: absolute; top: 10px; right: 15px; font-size: 1.8rem; font-weight: bold; color: #aaa; cursor: pointer; transition: color 0.3s; }
+        .modal-close:hover { color: #fff; }
+        #final-results div { font-size: 1.2rem; margin-bottom: 0.5rem; }
+        #final-results div:last-child { margin-bottom: 1.5rem; }
+        #high-scores { max-width: 600px; margin: 1rem auto; background: var(--score-bg); padding: 1rem; border-radius: 8px; }
+        #high-scores h2 { text-align: center; margin-bottom: 1rem; color: #ffeb3b; }
+        #high-scores-list { list-style-type: decimal; margin-top: 1rem; padding-left: 2rem; }
+        #high-scores-list li { display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        #high-scores-list li span:last-child { font-weight: bold; }
+        .confetti { position: fixed; width: 10px; height: 10px; background-color: #f00; opacity: 0.7; z-index: 1001; animation: fall linear forwards; top: -20px; pointer-events: none; }
+        @keyframes fall { to { transform: translateY(105vh) rotate(720deg); opacity: 0; } }
+
+        /* Media Queries */
+        @media(max-width: 1024px) { /* Adjust max-width for question area */
+             #question-display-area { max-width: 95%; }
+        }
+        @media(max-width: 900px) { /* Adjusted breakpoint for wrapping */
+             .tabs { justify-content: center; /* Center items when wrapped */ }
+        }
+
+        @media(max-width: 768px) {
+            #game-controls-wrapper { max-width: 95%; gap: 1rem; margin-top: 1rem;}
+            #player-panel, #score-panel { flex-basis: 300px; } /* Allow panels to shrink */
+            #board { gap: 3px; }
+            .category { font-size: 0.8rem; padding: 0.5rem; }
+            #game-title { font-size: 3rem; }
+             .player-card { /* width: 125px; */ padding: 0.4rem; font-size: 0.85rem; }
+             .player-score { font-size: 1.1rem; }
+             .player-list { gap: 0.4rem; } /* Reduce gap */
+            .tabs { max-width: 95%; } /* Ensure tabs container fits */
+            #current-question-text { font-size: 1.1rem; max-height: 150px;} /* Adjust question text size */
+            #question-display-area { padding: 1rem; min-height: 80px; }
+        }
+        @media(max-width: 650px) {
+             #game-controls-wrapper { flex-direction: column; align-items: center; }
+              #player-panel, #score-panel { max-width: 95%; width: 100%; flex-basis: auto; }
+             .category { font-size: .75rem; padding: .4rem }
+             #score-panel, #player-panel, #high-scores, #final-jeopardy { width: 95%; max-width: 95%; }
+             #game-title { font-size: 2.2rem; }
+             .player-card { width: calc(50% - 0.5rem); min-height: 70px; padding: 0.4rem; font-size: 0.8rem; }
+             .player-score { font-size: 1rem; }
+             .player-list { gap: 0.5rem; }
+             .controls { justify-content: center; gap: .5rem;}
+             input[type=number], input[type=text], button { font-size: 0.8rem; padding: 0.3rem 0.5rem; }
+             #final-question { font-size: 1.1rem; }
+             .wager-row { flex-direction: column; align-items: center; gap: 0.5rem; }
+             .wager-row label { text-align: center; margin-bottom: 0.2rem; }
+             .wager-row input { max-width: 120px; }
+             .tabs button, .tabs label, .tabs input { font-size: 0.8rem; padding: 0.4rem 0.6rem; margin-bottom: 0.3rem; }
+             .judge-buttons button { font-size: 0.7rem; padding: 0.3rem 0.4rem; }
+             #current-question-text { font-size: 1rem; max-height: 120px;} /* Further adjust question text */
+             #question-display-area { padding: 0.8rem; min-height: 70px;}
+        }
+
+        /* Title Font */
+        @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap");
+        #game-title { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 4rem; color: gold; text-align: center; margin: 1rem 0; text-shadow: 2px 2px 4px rgba(0, 0, 0, .7); }
+
+        /* Combined Tabs & Global Controls Container */
+        .tabs { display: flex; justify-content: center; align-items: center; gap: 0.75rem; margin: 1rem auto; max-width: 900px; flex-wrap: wrap; padding: 0 0.5rem; }
+        .tab-button { border-radius: 4px; border-bottom: 1px solid var(--fg); padding: 0.5rem 1rem; background: #2f4c9c; border-color: var(--fg); }
+        .tab-button:not(.active) { background: var(--card-bg); }
+        .tab-button:hover { background: #3b5998; }
+        #show-final-jeopardy {}
+        .tabs label[for="music-toggle"] {}
+        .tabs input[type="checkbox"]#music-toggle {}
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Score History Chart */
+        #score-history-chart-container { min-height: 300px; background: rgba(0, 0, 0, 0.2); display: flex; align-items: center; justify-content: center; color: #ccc; border-radius: 8px; margin-top: 1rem; padding: 1rem; position: relative; }
+        #score-history-chart { display: block; max-width: 100%; }
+        #chart-placeholder-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1 id="game-title">QUALITY JEOPARDY</h1>
+    </header>
+
+    <!-- Combined Tab and Global Controls Navigation -->
+    <div class="tabs">
+        <button class="tab-button active" data-tab="game-tab">Game</button>
+        <button class="tab-button" data-tab="score-history-tab">Score History</button>
+        <button class="tab-button" data-tab="high-scores-tab">High Scores</button>
+        <label for="music-toggle">Music</label>
+        <input type="checkbox" id="music-toggle" checked />
+        <label for="rotate-control-toggle">Rotate Control</label> <!-- NEW: Toggle for rotating control -->
+        <input type="checkbox" id="rotate-control-toggle" /> <!-- NEW: Toggle for rotating control -->
+        <button id="show-final-jeopardy" disabled>Final Jeopardy</button>
+    </div>
+
+    <!-- Game Tab Content -->
+    <div id="game-tab" class="tab-content active">
+        <div id="game-controls-wrapper">
+            <!-- Player Setup and Management -->
+            <section id="player-panel" aria-label="Player Management">
+                <div id="player-setup">
+                    <div class="controls">
+                        <input id="player-name" type="text" placeholder="Player Name" aria-label="Player Name" />
+                        <button id="add-player">Add Player</button>
+                        <button id="start-game" disabled>Start Game</button>
+                    </div>
+                </div>
+                <div id="player-list"><!-- Player cards will be added here by JS --></div>
+            </section>
+
+            <!-- Score Panel -->
+            <section id="score-panel" aria-label="Score Control Panel" style="display: none;">
+                <div id="score-display" aria-live="polite">Player: Score $0</div>
+                <div class="controls">
+                    <input id="manual-score" type="number" step="100" aria-label="Manual score adjustment for current player" placeholder="Set Score" />
+                    <button id="apply-score" aria-label="Apply manual score to current player">Update Player Score</button>
+                </div>
+                <div class="controls">
+                    <button id="undo-score" disabled>Undo Last Score</button>
+                    <button id="reset-all-scores" disabled>Reset All Scores</button>
+                    <button id="new-game">New Game</button>
+                </div>
+                 <div class="controls" id="steal-controls" style="display: none;">
+                      <button id="no-other-takers-btn">No Other Takers / Pass</button>
+                 </div>
+            </section>
+        </div><!-- End of game-controls-wrapper -->
+
+        <!-- NEW: Question Display Area -->
+        <section id="question-display-area">
+            <div id="current-question-text">(Question will appear here when selected)</div>
+        </section>
+
+        <!-- Final Jeopardy Section -->
+        <section id="final-jeopardy" aria-label="Final Jeopardy Round">
+             <h2>FINAL JEOPARDY</h2>
+            <div id="final-category">Category: Loading...</div>
+            <div id="final-question" style="display: none;">Question text...</div>
+            <button id="reveal-final-question">Reveal Question</button>
+            <div class="final-wagers" id="final-wagers"></div>
+            <div class="controls">
+                <button id="submit-final-wagers" style="display: none;">Lock In Wagers</button>
+                <button id="judge-final-answers" style="display: none;">Judge Final Answers</button>
+            </div>
+        </section>
+
+        <!-- Audio Elements -->
+        <audio id="bg-music" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Jeopardy_Think_Music.ogg" loop preload="auto"></audio>
+        <audio id="correct-sound" src="https://upload.wikimedia.org/wikipedia/commons/c/c7/Jeopardy-correct-answer.ogg" preload="auto"></audio>
+        <audio id="wrong-sound" src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Jeopardy-wrong-answer-2.ogg" preload="auto"></audio>
+        <audio id="daily-double-sound" src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Jeopardy-daily-double.ogg" preload="auto"></audio>
+        <audio id="final-jeopardy-sound" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Jeopardy_Think_Music.ogg" preload="auto"></audio>
+
+        <!-- Game Board -->
+        <section id="board" aria-label="Jeopardy Game Board" style="display: none;"></section>
+        <div id="victory" role="alert" style="display: none;">Cleared!</div> <!-- Kept element but hide it -->
+
+
+    </div><!-- End of game-tab -->
+
+    <!-- Score History Tab Content -->
+    <div id="score-history-tab" class="tab-content">
+         <section id="score-history-container">
+             <h2>Score Progression</h2>
+            <div id="score-history-chart-container">
+                <canvas id="score-history-chart"></canvas>
+                 <p id="chart-placeholder-text">(Score history will appear here)</p>
+            </div>
+        </section>
+    </div><!-- End of score-history-tab -->
+
+    <!-- High Scores Tab Content -->
+    <div id="high-scores-tab" class="tab-content">
+         <section id="high-scores">
+             <h2>High Scores</h2>
+            <ul id="high-scores-list">
+                <li>No scores saved yet.</li>
+            </ul>
+        </section>
+    </div><!-- End of high-scores-tab -->
+
+    <!-- Results Modal -->
+    <div id="results-modal" class="modal">
+        <div class="modal-content">
+             <span class="modal-close" title="Close">×</span>
+            <h2>Game Results</h2>
+            <div id="final-results"></div>
+            <button id="save-high-scores">Save to High Scores</button>
+        </div>
+    </div>
+
+    <!-- ********** START COMPLETE SCRIPT ********** -->
     <script type="module">
         // --- Constants ---
-        const STORAGE_KEY_GAME = 'quality_jeopardy_game_progress_v11_' + location.pathname; // Version for FJ answer hide
+        const STORAGE_KEY_GAME = 'quality_jeopardy_game_progress_v12_fixed'; // Version for steal fix
         const STORAGE_KEY_SCORES = 'quality_jeopardy_high_scores_v1';
         const PLAYER_COLORS = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#f44336', '#ffc107'];
         const MIN_WAGER = 5;
@@ -49,7 +647,7 @@
             'Chocolate':   [
                 'Chocolate liquor, cocoa butter, and sugar are the main ingredients in this type of chocolate. (A: Dark Chocolate)',
                 'This process involves heating and cooling chocolate to specific temperatures to stabilize the cocoa butter crystals, giving it a smooth texture and sheen. (A: Tempering)',
-                'Originating from the beans of the Theobroma cacao tree, chocolate production primarily occurs in regions near this imaginary line circling the Earth. (A: Equator)',
+                'Originating from the beans of Theobroma cacao tree, chocolate production primarily occurs in regions near this imaginary line circling the Earth. (A: Equator)',
                 'The "bloom" seen on old chocolate is often caused by migration of either fat or ______ to the surface. (A: Sugar)',
                 'This type of chocolate contains milk solids and typically has a milder flavor than dark chocolate. (A: Milk Chocolate)',
             ]
@@ -71,15 +669,16 @@
         // --- Calculated Values ---
         const numCategories = gameData.categories.length; const numCluesPerCat = gameData.categories[0]?.clues?.length ?? 0; const totalClues = numCategories * numCluesPerCat;
 
-        // --- DOM References ---
-        // (References remain the same as previous version)
-        const boardElement = document.getElementById('board'); const victoryElement = document.getElementById('victory'); const musicElement = document.getElementById('bg-music'); const musicToggleElement = document.getElementById('music-toggle');
-        const rotateControlToggleElement = document.getElementById('rotate-control-toggle'); // NEW DOM reference
-        const addPlayerBtnElement = document.getElementById('add-player'); const startGameBtnElement = document.getElementById('start-game'); const playerNameInputElement = document.getElementById('player-name'); const playerListElement = document.getElementById('player-list'); const scorePanelElement = document.getElementById('score-panel'); const scoreDisplayElement = document.getElementById('score-display'); const manualScoreInputElement = document.getElementById('manual-score'); const applyScoreBtnElement = document.getElementById('apply-score'); const undoBtnElement = document.getElementById('undo-score'); const resetScoresBtnElement = document.getElementById('reset-all-scores'); const newGameBtnElement = document.getElementById('new-game'); const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy'); const finalJeopardySectionElement = document.getElementById('final-jeopardy'); const finalCategoryElement = document.getElementById('final-category'); const finalQuestionElement = document.getElementById('final-question'); const revealFinalQuestionBtnElement = document.getElementById('reveal-final-question'); const submitFinalWagersBtnElement = document.getElementById('submit-final-wagers'); const judgeFinalAnswersBtnElement = document.getElementById('judge-final-answers'); const finalWagersContainerElement = document.getElementById('final-wagers'); const resultsModalElement = document.getElementById('results-modal'); const finalResultsElement = document.getElementById('final-results'); const saveHighScoresBtnElement = document.getElementById('save-high-scores'); const modalCloseElement = document.querySelector('.modal-close'); const scoreHistoryContainerElement = document.getElementById('score-history-container'); const scoreHistoryChartCanvas = document.getElementById('score-history-chart'); const chartPlaceholderText = document.getElementById('chart-placeholder-text'); const highScoresListElement = document.getElementById('high-scores-list'); const correctSound = document.getElementById('correct-sound'); const wrongSound = document.getElementById('wrong-sound'); const dailyDoubleSound = document.getElementById('daily-double-sound'); const finalJeopardySound = document.getElementById('final_jeopardy.mp3'); const stealControlsElement = document.getElementById('steal-controls'); const noOtherTakersBtnElement = document.getElementById('no-other-takers-btn'); const questionDisplayAreaElement = document.getElementById('question-display-area'); const currentQuestionTextElement = document.getElementById('current-question-text');
-
         // --- Utility Functions ---
         function getPlayerById(playerId) { return players.find(p => p.id === playerId); }
-        function playSound(audioElement) { if (audioElement && typeof audioElement.play === 'function' && musicToggleElement?.checked) { audioElement.currentTime = 0; audioElement.play().catch(e => console.warn("Audio play failed:", audioElement.id, e.message)); } else if (!musicToggleElement?.checked && audioElement !== musicElement) {} else if (!audioElement) console.warn("Attempted to play null audio element."); }
+        function playSound(audioElement) {
+            const musicToggleElement = document.getElementById('music-toggle');
+            if (audioElement && typeof audioElement.play === 'function' && musicToggleElement?.checked) {
+                audioElement.currentTime = 0;
+                audioElement.play().catch(e => console.warn("Audio play failed:", audioElement.id, e.message));
+            } else if (!musicToggleElement?.checked && audioElement !== document.getElementById('bg-music')) {}
+            else if (!audioElement) console.warn("Attempted to play null audio element.");
+        }
         function launchConfetti() { const cC=100; const cCo=document.body; for (let i = 0; i < cC; i++) { const c = document.createElement('div'); c.className = 'confetti'; c.style.left = Math.random() * 100 + 'vw'; c.style.backgroundColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)]; const aD = Math.random() * 3 + 2; c.style.animationDuration = aD + 's'; c.style.animationDelay = Math.random() * 0.5 + 's'; cCo.appendChild(c); setTimeout(() => { c.remove(); }, (aD + 1) * 1000); } }
 
         // NEW: Function to handle speech synthesis
@@ -100,21 +699,25 @@
             window.speechSynthesis.cancel(); // Stop any ongoing speech
 
             const utterance = new SpeechSynthesisUtterance(text);
-            // Optional: Customize voice, rate, pitch if needed.
-            // const voices = window.speechSynthesis.getVoices();
-            // utterance.voice = voices.find(v => v.lang === 'en-US'); // Example: select a voice
-
             window.speechSynthesis.speak(utterance);
         }
 
         // --- Question Display ---
         function showQuestionDisplay(text) {
+             const currentQuestionTextElement = document.getElementById('current-question-text');
+             const questionDisplayAreaElement = document.getElementById('question-display-area');
+             if (!currentQuestionTextElement) console.error("Element #current-question-text not found for showQuestionDisplay");
+             if (!questionDisplayAreaElement) console.error("Element #question-display-area not found for showQuestionDisplay");
              if (currentQuestionTextElement && questionDisplayAreaElement) {
                   currentQuestionTextElement.textContent = text;
                   questionDisplayAreaElement.style.display = 'block';
              }
         }
         function hideQuestionDisplay() {
+             const currentQuestionTextElement = document.getElementById('current-question-text');
+             const questionDisplayAreaElement = document.getElementById('question-display-area');
+             if (!currentQuestionTextElement) console.error("Element #current-question-text not found for hideQuestionDisplay");
+             if (!questionDisplayAreaElement) console.error("Element #question-display-area not found for hideQuestionDisplay");
              if (currentQuestionTextElement && questionDisplayAreaElement) {
                   currentQuestionTextElement.textContent = ''; // Clear text
                   questionDisplayAreaElement.style.display = 'none';
@@ -127,6 +730,9 @@
             const questionTextDisplay = cardBack?.querySelector('.question-text');
             const revealAnswerBtn = cardBack?.querySelector('.reveal-answer-btn');
 
+            if (!cardBack) console.error("Card back element not found in revealCardAnswer");
+            if (!questionTextDisplay) console.error("Question text display element not found in revealCardAnswer");
+
             if (cardBack && questionTextDisplay && cardBack.dataset.answer) {
                 questionTextDisplay.textContent = cardBack.dataset.answer; // Display the answer
             }
@@ -137,14 +743,167 @@
         }
 
         // --- Core Game Logic ---
-        function updatePlayerScore(playerId, delta, isUndo = false, cardKey = null) { const player = getPlayerById(playerId); if (player) { const oldScore = player.score; player.score += delta; const newScore = player.score; console.log(`Score Update: ${player.name} ${oldScore} -> ${newScore} (Delta: ${delta}, Turn: ${turnCounter})`); if (!scoreHistory[playerId]) scoreHistory[playerId] = []; scoreHistory[playerId].push({ turn: turnCounter, score: newScore }); if (!isUndo) { historyStack.push({ action: 'score', playerId: playerId, delta: delta, turn: turnCounter, cardKey: cardKey }); updateUndoButtonState(); } updatePlayerCards(); updateScoreDisplay(); drawScoreHistoryChart(); } else { console.error("Player not found for score update:", playerId); } if (!isUndo) saveGameProgress(); }
-        function nextPlayerTurnRegular() { if (players.length <= 1) return; playerTurnIndex = (playerTurnIndex + 1) % players.length; currentPlayerId = players[playerTurnIndex]?.id; turnCounter++; console.log(`Regular Turn ${turnCounter}: ${players[playerTurnIndex]?.name}'s turn (Index: ${playerTurnIndex})`); updatePlayerCards(); updateScoreDisplay(); saveGameProgress(); }
-        function setActivePlayer(playerId, isHostIntervention = false) { const player = getPlayerById(playerId); if (player) { const previousPlayerId = currentPlayerId; currentPlayerId = playerId; const newIndex = players.findIndex(p => p.id === playerId); if (newIndex !== -1) playerTurnIndex = newIndex; if (isHostIntervention && previousPlayerId !== playerId) { turnCounter++; console.log(`Host Intervention (Turn ${turnCounter}): Set Active Player to ${player.name} (Index: ${playerTurnIndex})`); } else { console.log(`Set Active Player: ${player.name} (Index: ${playerTurnIndex}) (No turn count change)`); } updatePlayerCards(); updateScoreDisplay(); saveGameProgress(); } else { console.error("Attempted to set active player to non-existent ID:", playerId); } }
-        function handleHostPlayerSelection(event) { const selectedPlayerCard = event.currentTarget; const selectedPlayerId = selectedPlayerCard.dataset.playerId; if (!gameStarted) return; if (finalJeopardySectionElement.style.display === 'block') { console.log("Host selection blocked: Final Jeopardy active."); return; } if (activeCardElement) { alert("Cannot change player while a question is active. Please resolve it first."); return; } if (stealControlsElement.style.display === 'flex') { console.log("Host selection blocked: Steal selection active."); return; } if (!selectedPlayerId) { console.warn("Host selection failed: No player ID on card."); return; } console.log(`Host selecting player: ${getPlayerById(selectedPlayerId)?.name}`); setActivePlayer(selectedPlayerId, true); }
-        function updatePlayerCards() { if (!playerListElement) return; const isSelectionModeActive = !!document.querySelector('.card.pending-steal'); const activeCardStateKey = activeCardElement?.dataset?.stateKey; const failedPlayerIds = activeCardStateKey ? (boardState[activeCardStateKey]?.failedPlayerIds || []) : []; playerListElement.innerHTML = ''; players.forEach(player => { const card = document.createElement('div'); card.className = 'player-card'; card.dataset.playerId = player.id; const indicator = document.createElement('div'); indicator.className = 'player-indicator'; indicator.style.backgroundColor = player.color; const nameElem = document.createElement('div'); nameElem.className = 'player-name'; nameElem.textContent = player.name || 'Unnamed Player'; const scoreElem = document.createElement('div'); scoreElem.className = 'player-score'; scoreElem.textContent = `$${player.score}`; card.appendChild(indicator); card.appendChild(nameElem); card.appendChild(scoreElem); card.removeEventListener('click', handlePlayerCardClickForAnswer); card.removeEventListener('click', handleHostPlayerSelection); card.classList.remove('selectable-player', 'failed-attempt', 'host-selectable'); if (player.id === currentPlayerId && gameStarted) card.classList.add('active-player'); if (isSelectionModeActive) { if (failedPlayerIds.includes(player.id)) { card.classList.add('failed-attempt'); card.style.cursor = 'not-allowed'; } else { card.classList.add('selectable-player'); card.style.cursor = 'pointer'; card.addEventListener('click', handlePlayerCardClickForAnswer); } } else if (gameStarted && finalJeopardySectionElement.style.display !== 'block') { card.classList.add('host-selectable'); card.style.cursor = 'pointer'; card.addEventListener('click', handleHostPlayerSelection); } else { card.style.cursor = 'default'; } playerListElement.appendChild(card); }); }
-        function updateScoreDisplay() { if (!scoreDisplayElement) return; let mainText = ""; let statusText = ""; if (activeCardElement && activeCardElement.classList.contains('pending-steal')) statusText = "Select next player to answer or 'No Takers'"; if (currentPlayerId && gameStarted) { const player = getPlayerById(currentPlayerId); if(player) mainText = `Turn: ${player.name} | Score: $${player.score}`; else mainText = "Waiting for player..."; } else if (!gameStarted) mainText = "Add players and start game"; else mainText = "Game Over"; scoreDisplayElement.innerHTML = mainText + (statusText ? `<span class="status-text">${statusText}</span>` : ""); }
+        function updatePlayerScore(playerId, delta, isUndo = false, cardKey = null) {
+            const player = getPlayerById(playerId);
+            if (player) {
+                const oldScore = player.score;
+                player.score += delta;
+                const newScore = player.score;
+                console.log(`Score Update: ${player.name} ${oldScore} -> ${newScore} (Delta: ${delta}, Turn: ${turnCounter})`);
+                if (!scoreHistory[playerId]) scoreHistory[playerId] = [];
+                scoreHistory[playerId].push({ turn: turnCounter, score: newScore });
+                if (!isUndo) {
+                    historyStack.push({ action: 'score', playerId: playerId, delta: delta, turn: turnCounter, cardKey: cardKey });
+                    updateUndoButtonState();
+                }
+                updatePlayerCards();
+                updateScoreDisplay();
+                drawScoreHistoryChart();
+            } else {
+                console.error("Player not found for score update:", playerId);
+            }
+            if (!isUndo) saveGameProgress();
+        }
+        function nextPlayerTurnRegular() {
+            console.log("Entering nextPlayerTurnRegular");
+            if (players.length <= 1) return;
+
+            const playerListElement = document.getElementById('player-list');
+            if (!playerListElement) {
+                console.error("playerListElement not found in nextPlayerTurnRegular. Game will not advance.");
+                return;
+            }
+            playerTurnIndex = (playerTurnIndex + 1) % players.length;
+            currentPlayerId = players[playerTurnIndex]?.id;
+            turnCounter++;
+            console.log(`Regular Turn ${turnCounter}: ${players[playerTurnIndex]?.name}'s turn (Index: ${playerTurnIndex})`);
+            updatePlayerCards();
+            updateScoreDisplay();
+            saveGameProgress();
+        }
+        function setActivePlayer(playerId, isHostIntervention = false) {
+            console.log(`setActivePlayer called for ${playerId}, isHostIntervention: ${isHostIntervention}`);
+            const player = getPlayerById(playerId);
+            if (player) {
+                const previousPlayerId = currentPlayerId;
+                currentPlayerId = playerId;
+                const newIndex = players.findIndex(p => p.id === playerId);
+                if (newIndex !== -1) playerTurnIndex = newIndex;
+                if (isHostIntervention && previousPlayerId !== playerId) {
+                    turnCounter++;
+                    console.log(`Host Intervention (Turn ${turnCounter}): Set Active Player to ${player.name} (Index: ${playerTurnIndex})`);
+                } else {
+                    console.log(`Set Active Player: ${player.name} (Index: ${playerTurnIndex}) (No turn count change)`);
+                }
+                updatePlayerCards();
+                updateScoreDisplay();
+                saveGameProgress();
+            } else {
+                console.error("Attempted to set active player to non-existent ID:", playerId);
+            }
+        }
+        function handleHostPlayerSelection(event) {
+            const selectedPlayerCard = event.currentTarget;
+            const selectedPlayerId = selectedPlayerCard.dataset.playerId;
+            if (!gameStarted) return;
+            const finalJeopardySectionElement = document.getElementById('final-jeopardy');
+            if (finalJeopardySectionElement && finalJeopardySectionElement.style.display === 'block') {
+                console.log("Host selection blocked: Final Jeopardy active.");
+                return;
+            }
+            if (activeCardElement) {
+                alert("Cannot change player while a question is active. Please resolve it first.");
+                return;
+            }
+            const stealControlsElement = document.getElementById('steal-controls');
+            if (stealControlsElement && stealControlsElement.style.display === 'flex') {
+                console.log("Host selection blocked: Steal selection active.");
+                return;
+            }
+            if (!selectedPlayerId) {
+                console.warn("Host selection failed: No player ID on card.");
+                return;
+            }
+            console.log(`Host selecting player: ${getPlayerById(selectedPlayerId)?.name}`);
+            setActivePlayer(selectedPlayerId, true);
+        }
+        function updatePlayerCards() {
+            const playerListElement = document.getElementById('player-list');
+            if (!playerListElement) {
+                console.error("playerListElement not found in updatePlayerCards. Cannot update player cards.");
+                return;
+            }
+            console.log("Updating player cards...");
+            const isSelectionModeActive = !!document.querySelector('.card.pending-steal');
+            const activeCardStateKey = activeCardElement?.dataset?.stateKey;
+            const failedPlayerIds = activeCardStateKey ? (boardState[activeCardStateKey]?.failedPlayerIds || []) : [];
+            playerListElement.innerHTML = '';
+            players.forEach(player => {
+                const card = document.createElement('div');
+                card.className = 'player-card';
+                card.dataset.playerId = player.id;
+                const indicator = document.createElement('div');
+                indicator.className = 'player-indicator';
+                indicator.style.backgroundColor = player.color;
+                const nameElem = document.createElement('div');
+                nameElem.className = 'player-name';
+                nameElem.textContent = player.name || 'Unnamed Player';
+                const scoreElem = document.createElement('div');
+                scoreElem.className = 'player-score';
+                scoreElem.textContent = `$${player.score}`;
+                card.appendChild(indicator);
+                card.appendChild(nameElem);
+                card.appendChild(scoreElem);
+                card.removeEventListener('click', handlePlayerCardClickForAnswer);
+                card.removeEventListener('click', handleHostPlayerSelection);
+                card.classList.remove('selectable-player', 'failed-attempt', 'host-selectable');
+                if (player.id === currentPlayerId && gameStarted) card.classList.add('active-player');
+                if (isSelectionModeActive) {
+                    if (failedPlayerIds.includes(player.id)) {
+                        card.classList.add('failed-attempt');
+                        card.style.cursor = 'not-allowed';
+                    } else {
+                        card.classList.add('selectable-player');
+                        card.style.cursor = 'pointer';
+                        card.addEventListener('click', handlePlayerCardClickForAnswer);
+                    }
+                } else if (gameStarted && document.getElementById('final-jeopardy')?.style.display !== 'block') {
+                    card.classList.add('host-selectable');
+                    card.style.cursor = 'pointer';
+                    card.addEventListener('click', handleHostPlayerSelection);
+                } else {
+                    card.style.cursor = 'default';
+                }
+                playerListElement.appendChild(card);
+            });
+            console.log("Finished updating player cards.");
+        }
+        function updateScoreDisplay() {
+            const scoreDisplayElement = document.getElementById('score-display');
+            if (!scoreDisplayElement) {
+                console.error("scoreDisplayElement not found in updateScoreDisplay. Cannot update score display.");
+                return;
+            }
+            console.log("Updating score display...");
+            let mainText = "";
+            let statusText = "";
+            if (activeCardElement && activeCardElement.classList.contains('pending-steal')) statusText = "Select next player to answer or 'No Takers'";
+            if (currentPlayerId && gameStarted) {
+                const player = getPlayerById(currentPlayerId);
+                if(player) mainText = `Turn: ${player.name} | Score: $${player.score}`;
+                else mainText = "Waiting for player...";
+            } else if (!gameStarted) mainText = "Add players and start game";
+            else mainText = "Game Over";
+            scoreDisplayElement.innerHTML = mainText + (statusText ? `<span class="status-text">${statusText}</span>` : "");
+            console.log("Finished updating score display.");
+        }
         function generateBoard() {
-            if (!boardElement) return;
+            console.log("Generating board...");
+            const boardElement = document.getElementById('board');
+            if (!boardElement) {
+                console.error("boardElement not found in generateBoard. Cannot generate board.");
+                return;
+            }
             boardElement.innerHTML = '';
             boardElement.style.gridTemplateColumns = `repeat(${numCategories}, 1fr)`;
             gameData.categories.forEach(cat => {
@@ -185,7 +944,6 @@
                     back.dataset.answer = cardBackContent;
 
                     // Initial HTML for the card back: empty text, reveal button, and judge buttons
-                    // Note: The reveal-answer-btn's display will be controlled by JS
                     back.innerHTML = `
                         <div class="question-text"></div>
                         <div class="judge-buttons" style="display: none;">
@@ -228,12 +986,76 @@
                 }
             }
             boardElement.style.display = 'grid';
+            console.log("Finished generating board.");
         }
-        function enablePlayerSelectionMode(showButton = true) { if (!activeCardElement) { console.warn("Enable Steal Mode: No active card."); return; } const stateKey = activeCardElement.dataset.stateKey; if (!stateKey || !boardState[stateKey]) { console.warn("Enable Steal Mode: Invalid state."); return; } console.log("Entering steal selection mode:", stateKey); activeCardElement.classList.add('pending-steal'); updatePlayerCards(); if (showButton && stealControlsElement && noOtherTakersBtnElement) { stealControlsElement.style.display = 'flex'; noOtherTakersBtnElement.onclick = null; noOtherTakersBtnElement.onclick = handleNoOtherTakersClick; } updateScoreDisplay(); console.log("Steal selection enabled."); }
-        function disablePlayerSelectionMode() { if (stealControlsElement) stealControlsElement.style.display = 'none'; if (activeCardElement) activeCardElement.classList.remove('pending-steal'); updatePlayerCards(); updateScoreDisplay(); console.log("Steal/Host selection modes disabled."); }
-        function handlePlayerCardClickForAnswer(event) { const selectedPlayerCard = event.currentTarget; const selectedPlayerId = selectedPlayerCard.dataset.playerId; if (!activeCardElement || !selectedPlayerId) { console.warn("Steal Click: No active Q/ID."); return; } console.log(`Player ${getPlayerById(selectedPlayerId)?.name} selected for steal.`); setActivePlayer(selectedPlayerId, false); disablePlayerSelectionMode(); }
+        function enablePlayerSelectionMode(showButton = true) {
+            console.log("Entering enablePlayerSelectionMode");
+            const activeCardElement = document.querySelector('.card.flipped'); // Find the currently active card
+            if (!activeCardElement) { console.warn("Enable Steal Mode: No active card found. Cannot enable selection mode."); return; }
+
+            const stateKey = activeCardElement.dataset.stateKey;
+            if (!stateKey || !boardState[stateKey]) { console.warn("Enable Steal Mode: Invalid state for active card. Cannot enable selection mode."); return; }
+            console.log("Entering steal selection mode for:", stateKey);
+            activeCardElement.classList.add('pending-steal');
+            updatePlayerCards();
+            const stealControlsElement = document.getElementById('steal-controls');
+            const noOtherTakersBtnElement = document.getElementById('no-other-takers-btn');
+            if (showButton && stealControlsElement && noOtherTakersBtnElement) {
+                stealControlsElement.style.display = 'flex';
+                noOtherTakersBtnElement.onclick = null; // Remove previous handler
+                noOtherTakersBtnElement.onclick = handleNoOtherTakersClick;
+            }
+            updateScoreDisplay();
+            console.log("Steal selection enabled.");
+        }
+        function disablePlayerSelectionMode() {
+            console.log("Disabling player selection mode.");
+            const stealControlsElement = document.getElementById('steal-controls');
+            if (stealControlsElement) stealControlsElement.style.display = 'none';
+            if (activeCardElement) activeCardElement.classList.remove('pending-steal');
+            updatePlayerCards(); // This will remove selectable-player class and re-attach host-selectable if applicable
+            updateScoreDisplay();
+            console.log("Player selection mode disabled.");
+        }
+
+        // --- CORRECTED FUNCTION ---
+        function handlePlayerCardClickForAnswer(event) {
+            const selectedPlayerCard = event.currentTarget;
+            const selectedPlayerId = selectedPlayerCard.dataset.playerId;
+            if (!activeCardElement || !selectedPlayerId) {
+                console.warn("Steal Click: No active Question/ID found.");
+                return;
+            }
+            console.log(`Player ${getPlayerById(selectedPlayerId)?.name} selected for steal.`);
+
+            // 1. Set the new player as active. This updates the score display and internal state.
+            setActivePlayer(selectedPlayerId, false);
+
+            // 2. Hide the "No Other Takers" button as a player has been selected.
+            const stealControlsElement = document.getElementById('steal-controls');
+            if (stealControlsElement) {
+                stealControlsElement.style.display = 'none';
+            }
+
+            // 3. Manually update player cards to remove steal-related classes and listeners.
+            // This prevents another player from being selected for the same steal attempt.
+            const playerListElement = document.getElementById('player-list');
+            if (playerListElement) {
+                playerListElement.querySelectorAll('.player-card').forEach(pCard => {
+                    pCard.classList.remove('selectable-player');
+                    pCard.style.cursor = 'pointer'; // Return to default host-selectable cursor
+                    pCard.removeEventListener('click', handlePlayerCardClickForAnswer);
+                });
+            }
+
+            // The activeCardElement remains set, and the 'pending-steal' class remains on the card.
+            // The game is now waiting for the host to judge the new player's answer using the
+            // 'Correct'/'Wrong' buttons on the still-active card.
+        }
+
 
         function handleCardClick(event) {
+            console.log("handleCardClick triggered");
             const card = event.currentTarget;
             const stateKey = card.dataset.stateKey;
             const catIndex = card.dataset.catIndex;
@@ -246,11 +1068,11 @@
                 return;
             }
             if (!gameStarted || !currentPlayerId) {
-                console.warn("Card click ignored: Game not started/no player.");
+                console.warn("Card click ignored: Game not started or no player is active.");
                 return;
             }
             if (card.classList.contains('flipped') || card.classList.contains('disabled')) {
-                console.log("Card click ignored: Card resolved/judging.");
+                console.log("Card click ignored: Card already flipped, disabled, or being judged.");
                 return;
             }
             if (currentState.failedPlayerIds?.includes(currentPlayerId)) {
@@ -263,14 +1085,17 @@
             }
 
             console.log(`Card ${stateKey} clicked by ${getPlayerById(currentPlayerId)?.name}`);
-            activeCardElement = card;
+            activeCardElement = card; // Set the global active card
             card.classList.add('flipped');
 
             const value = parseInt(card.dataset.value, 10);
             const judgeButtons = card.querySelector('.judge-buttons');
             const cardBack = card.querySelector('.card-back');
-            const questionTextDisplay = cardBack.querySelector('.question-text');
-            const revealAnswerBtn = cardBack.querySelector('.reveal-answer-btn');
+            const questionTextDisplay = cardBack?.querySelector('.question-text');
+            const revealAnswerBtn = cardBack?.querySelector('.reveal-answer-btn');
+
+            if (!cardBack) console.error("Card back element not found in handleCardClick");
+            if (!questionTextDisplay) console.error("Question text display element not found in handleCardClick");
 
             const isDailyDouble = currentState.isDailyDouble ?? false;
             const categoryName = gameData.categories[catIndex]?.name ?? 'Unknown';
@@ -285,15 +1110,15 @@
             if (!boardState[stateKey]) boardState[stateKey] = {};
 
             if (isDailyDouble) {
-                playSound(dailyDoubleSound);
+                playSound(document.getElementById('daily-double-sound'));
                 console.log("DD!");
                 let wager=NaN;
                 const player=getPlayerById(currentPlayerId);
-                if(!player) return;
+                if(!player) { console.error("Current player not found for wager."); return; }
                 const maxW=Math.max(DAILY_DOUBLE_MAX_WAGER_BASE, player.score > 0 ? player.score : DAILY_DOUBLE_MAX_WAGER_BASE);
                 while(isNaN(wager)||wager<MIN_WAGER||wager>maxW) {
                     const wI=prompt(`DAILY DOUBLE!\n${player.name}, wager (min $${MIN_WAGER}, max $${maxW}):`);
-                    if(wI===null){wager=MIN_WAGER;break;}
+                    if(wI===null){wager=MIN_WAGER;break;} // User cancelled
                     wager=parseInt(wI,10);
                     if(isNaN(wager)||wager<MIN_WAGER||wager>maxW) alert(`Invalid wager. Please enter a number between $${MIN_WAGER} and $${maxW}.`);
                 }
@@ -301,6 +1126,7 @@
                 console.log(`${player.name} wagered $${currentWager}`);
                 showQuestionDisplay(displayQuestion);
                 speakQuestion(displayQuestion);
+                const musicElement = document.getElementById('bg-music');
                 if (musicElement) {
                     musicElement.pause();
                 }
@@ -308,6 +1134,7 @@
                 currentWager=value;
                 showQuestionDisplay(displayQuestion);
                 speakQuestion(displayQuestion);
+                const musicElement = document.getElementById('bg-music');
                 if (musicElement) {
                     musicElement.pause();
                 }
@@ -339,16 +1166,20 @@
 
                 const cBtn = judgeButtons.querySelector('.correct-btn');
                 const wBtn = judgeButtons.querySelector('.wrong-btn');
-                cBtn.onclick = null;
+                if (!cBtn) console.error("Correct button not found");
+                if (!wBtn) console.error("Wrong button not found");
+
+                cBtn.onclick = null; // Clear previous handlers to prevent duplicates
                 wBtn.onclick = null;
                 cBtn.onclick = (e) => { e.stopPropagation(); judgeAnswer(card, true, currentWager, isDailyDouble); };
                 wBtn.onclick = (e) => { e.stopPropagation(); judgeAnswer(card, false, currentWager, isDailyDouble); };
             }
-            disablePlayerSelectionMode();
+            disablePlayerSelectionMode(); // Ensure selection mode is off before judging
             saveGameProgress();
         }
         function handleNoOtherTakersClick() {
-            if (!activeCardElement) { console.warn("No Takers: No active card."); return; }
+            console.log("handleNoOtherTakersClick triggered");
+            if (!activeCardElement) { console.warn("No Takers: No active card found."); return; }
             const stateKey = activeCardElement.dataset.stateKey;
             console.log("No takers for:", stateKey);
             hideQuestionDisplay();
@@ -372,6 +1203,7 @@
                 const rA = jB.querySelector('.reveal-answer-btn'); if(rA) rA.onclick=null; // Clear reveal button handler
             }
             disablePlayerSelectionMode();
+            // *** FIX: Reset activeCardElement after resolving the question ***
             activeCardElement = null;
             currentWager = 0;
             if (answeredCluesCount >= totalClues) {
@@ -383,15 +1215,16 @@
             saveGameProgress();
         }
         function judgeAnswer(card, isCorrect, amount, isDailyDouble = false) {
+            console.log(`judgeAnswer triggered for card ${card?.dataset?.stateKey}, correct: ${isCorrect}`);
             const stateKey = card?.dataset?.stateKey;
-            if (!currentPlayerId || !card || !stateKey) { console.error("JudgeAnswer missing data", { currentPlayerId, card, stateKey }); return; }
+            if (!currentPlayerId || !card || !stateKey) { console.error("JudgeAnswer missing critical data", { currentPlayerId, card, stateKey }); return; }
             if (!boardState[stateKey]) boardState[stateKey] = {};
             const delta = isCorrect ? amount : -amount;
             const playerBeingJudgedId = currentPlayerId;
             console.log(`Judging ${getPlayerById(playerBeingJudgedId)?.name} on ${stateKey}. Correct: ${isCorrect}, Amount: ${delta}, DD: ${isDailyDouble}`);
             turnCounter++;
             updatePlayerScore(playerBeingJudgedId, delta, false, stateKey);
-            playSound(isCorrect ? correctSound : wrongSound);
+            playSound(isCorrect ? document.getElementById('correct-sound') : document.getElementById('wrong-sound'));
             hideQuestionDisplay();
 
             // Ensure the answer is revealed on the card back before hiding controls
@@ -402,49 +1235,59 @@
                 console.log(`Correct. Question resolved.`);
                 boardState[stateKey].state = 'correct';
                 boardState[stateKey].playerId = playerBeingJudgedId;
-                boardState[stateKey].failedPlayerIds = boardState[stateKey].failedPlayerIds || [];
+                boardState[stateKey].failedPlayerIds = boardState[stateKey].failedPlayerIds || []; // Ensure array exists
                 answeredCluesCount++;
                 console.log("Answered:", answeredCluesCount, "/", totalClues);
                 card.classList.remove('flipped', 'pending-steal');
                 card.classList.add('disabled', 'correct');
-                card.removeEventListener('click', handleCardClick);
+                card.removeEventListener('click', handleCardClick); // Remove click listener
                 const fF = card.querySelector('.card-front');
                 if (fF) { fF.textContent = ''; fF.classList.add('empty-value'); }
                 const jB = card.querySelector('.judge-buttons');
                 if (jB) {
-                    jB.style.display = 'none';
+                    jB.style.display = 'none'; // Hide judge buttons
                     const c=jB.querySelector('.correct-btn'); if(c)c.onclick=null;
                     const w=jB.querySelector('.wrong-btn'); if(w)w.onclick=null;
                     const rA = jB.querySelector('.reveal-answer-btn'); if(rA) rA.onclick=null; // Clear reveal button handler
                 }
                 disablePlayerSelectionMode();
+                // *** FIX: Reset activeCardElement after a correct answer ***
                 activeCardElement = null;
                 currentWager = 0;
                 boardCleared = answeredCluesCount >= totalClues;
+
                 if (!boardCleared) {
+                    console.log(`Board not cleared. Checking for next turn logic. DD: ${isDailyDouble}, Rotate: ${rotateControlEnabled}`);
                     // MODIFIED LOGIC: If Rotate Control is enabled OR it's a Daily Double, rotate the turn
                     if (isDailyDouble || rotateControlEnabled) {
+                        console.log("Rotating turn...");
                         nextPlayerTurnRegular();
                     } else { // Otherwise, the current player keeps control
+                        console.log("Current player retains control...");
                         setActivePlayer(playerBeingJudgedId, false);
                     }
+                } else {
+                    console.log("Board cleared after correct answer. Setting up Final Jeopardy.");
+                    setupFinalJeopardy();
                 }
-            } else {
+            } else { // Incorrect answer
                 console.log(`Incorrect.`);
-                if (!boardState[stateKey].failedPlayerIds) boardState[stateKey].failedPlayerIds = [];
+                if (!boardState[stateKey].failedPlayerIds) boardState[stateKey].failedPlayerIds = []; // Ensure array exists
                 if (!boardState[stateKey].failedPlayerIds.includes(playerBeingJudgedId)) {
                     boardState[stateKey].failedPlayerIds.push(playerBeingJudgedId);
                 }
-                boardState[stateKey].state = null;
+                boardState[stateKey].state = null; // Not fully answered yet
                 const eligibleCount = players.filter(p => !boardState[stateKey].failedPlayerIds.includes(p.id)).length;
-                if (isDailyDouble || eligibleCount === 0) {
-                    console.log(isDailyDouble ? "DD incorrect. Resolved." : "All failed. Resolved.");
-                    boardState[stateKey].state = 'wrong';
+                console.log(`Eligible players for steal: ${eligibleCount}`);
+
+                if (isDailyDouble || eligibleCount === 0) { // If DD incorrect or no other players can answer
+                    console.log(isDailyDouble ? "DD incorrect. Resolved." : "All players failed. Resolved.");
+                    boardState[stateKey].state = 'wrong'; // Mark as wrong for final record
                     answeredCluesCount++;
                     console.log("Answered:", answeredCluesCount, "/", totalClues);
                     card.classList.remove('flipped', 'pending-steal');
                     card.classList.add('disabled', 'wrong');
-                    card.removeEventListener('click', handleCardClick);
+                    card.removeEventListener('click', handleCardClick); // Remove click listener
                     const fF = card.querySelector('.card-front');
                     if (fF) { fF.textContent = ''; fF.classList.add('empty-value'); }
                     const jB = card.querySelector('.judge-buttons');
@@ -455,60 +1298,92 @@
                         const rA = jB.querySelector('.reveal-answer-btn'); if(rA) rA.onclick=null; // Clear reveal button handler
                     }
                     disablePlayerSelectionMode();
+                    // *** FIX: Reset activeCardElement after resolving the question (DD incorrect or all failed) ***
                     activeCardElement = null;
                     currentWager = 0;
                     boardCleared = answeredCluesCount >= totalClues;
                     if (!boardCleared) {
+                        console.log("Rotating turn after incorrect answer (DD or all failed).");
                         nextPlayerTurnRegular();
+                    } else {
+                        console.log("Board cleared after incorrect answer. Setting up Final Jeopardy.");
+                        setupFinalJeopardy();
                     }
-                } else {
-                    console.log("Incorrect. Enable selection.");
+                } else { // Incorrect, but others can still steal
+                    console.log("Incorrect. Enabling steal selection.");
                     enablePlayerSelectionMode();
                     // Make sure the reveal button is hidden if answer is already shown when re-enabling selection
                     const revealBtn = card.querySelector('.reveal-answer-btn');
                     const qText = card.querySelector('.card-back .question-text');
                     const cardBack = card.querySelector('.card-back');
-                    if (revealBtn && qText.textContent === cardBack.dataset.answer) {
+                    if (revealBtn && qText && cardBack && qText.textContent === cardBack.dataset.answer) {
                         revealBtn.style.display = 'none';
                     } else if (revealBtn) { // If answer not yet shown, keep reveal button
                         revealBtn.style.display = 'inline-block';
-                        revealAnswerBtn.onclick = (e) => { // Re-attach click handler for reveal
+                        revealBtn.onclick = (e) => { // Re-attach click handler for reveal
                             e.stopPropagation();
                             revealCardAnswer(card);
                         };
                     }
                 }
             }
-            if (boardCleared) {
-                console.log("Board clear after judging. Starting Final Jeopardy.");
-                setupFinalJeopardy();
-            }
             saveGameProgress();
         }
-        function determineDailyDouble() { if (totalClues === 0) return; Object.keys(boardState).forEach(key => { if (boardState[key]) boardState[key].isDailyDouble = false; }); const potentialLocations = []; for (let r = 1; r < numCluesPerCat; r++) { for (let c = 0; c < numCategories; c++) { const k = `${c}-${r}`; if (!boardState[k] || (!boardState[k].state && !boardState[k].failedPlayerIds?.length)) { potentialLocations.push(k); } } } if (potentialLocations.length > 0) { const dd1Index = Math.floor(Math.random() * potentialLocations.length); const dd1Key = potentialLocations.splice(dd1Index, 1)[0]; if (!boardState[dd1Key]) boardState[dd1Key] = {}; boardState[dd1Key].isDailyDouble = true; console.log("DD1 location:", dd1Key); if (numCategories >= 5 && numCluesPerCat >= 3 && potentialLocations.length > 0) { const dd2Index = Math.floor(Math.random() * potentialLocations.length); const dd2Key = potentialLocations[dd2Index]; if (!boardState[dd2Key]) boardState[dd2Key] = {}; boardState[dd2Key].isDailyDouble = true; console.log("DD2 location:", dd2Key); } } else console.log("Could not place Daily Double(s) - no eligible locations."); }
+        function determineDailyDouble() {
+            console.log("Determining Daily Doubles...");
+            if (totalClues === 0) return;
+            Object.keys(boardState).forEach(key => { if (boardState[key]) boardState[key].isDailyDouble = false; });
+            const potentialLocations = [];
+            for (let r = 1; r < numCluesPerCat; r++) {
+                for (let c = 0; c < numCategories; c++) {
+                    const k = `${c}-${r}`;
+                    if (!boardState[k] || (!boardState[k].state && !boardState[k].failedPlayerIds?.length)) {
+                        potentialLocations.push(k);
+                    }
+                }
+            }
+            if (potentialLocations.length > 0) {
+                const dd1Index = Math.floor(Math.random() * potentialLocations.length);
+                const dd1Key = potentialLocations.splice(dd1Index, 1)[0];
+                if (!boardState[dd1Key]) boardState[dd1Key] = {};
+                boardState[dd1Key].isDailyDouble = true;
+                console.log("DD1 location:", dd1Key);
+                if (numCategories >= 5 && numCluesPerCat >= 3 && potentialLocations.length > 0) {
+                    const dd2Index = Math.floor(Math.random() * potentialLocations.length);
+                    const dd2Key = potentialLocations[dd2Index];
+                    if (!boardState[dd2Key]) boardState[dd2Key] = {};
+                    boardState[dd2Key].isDailyDouble = true;
+                    console.log("DD2 location:", dd2Key);
+                }
+            } else console.log("Could not place Daily Double(s) - no eligible locations.");
+            console.log("Finished determining Daily Doubles.");
+        }
 
         // --- Game State & UI Management ---
         function saveGameProgress() {
-            if (!gameStarted && players.length === 0 && !Object.keys(boardState).length) return;
+            console.log("Saving game progress...");
+            if (!gameStarted && players.length === 0 && !Object.keys(boardState).length) return; // Don't save initial empty state
             const state = {
                 gameStarted,
-                players: players.map(p => ({ ...p })),
+                players: players.map(p => ({ ...p })), // Deep copy players
                 currentPlayerId,
                 playerTurnIndex,
-                boardState: JSON.parse(JSON.stringify(boardState)),
-                historyStack: [...historyStack],
+                boardState: JSON.parse(JSON.stringify(boardState)), // Deep copy board state
+                historyStack: [...historyStack], // Shallow copy stack is fine here
                 answeredCluesCount,
                 turnCounter,
-                scoreHistory: JSON.parse(JSON.stringify(scoreHistory)),
+                scoreHistory: JSON.parse(JSON.stringify(scoreHistory)), // Deep copy score history
                 rotateControlEnabled // NEW: Save this state
             };
             try {
                 localStorage.setItem(STORAGE_KEY_GAME, JSON.stringify(state));
+                console.log("Game progress saved successfully.");
             } catch (e) {
-                console.error("Save Error:", e);
+                console.error("Error saving game progress to localStorage:", e);
             }
         }
         function loadGameProgress() {
+            console.log("Loading game progress...");
             const savedState = localStorage.getItem(STORAGE_KEY_GAME);
             if (savedState) {
                 try {
@@ -524,88 +1399,603 @@
                         turnCounter = state.turnCounter ?? 0;
                         scoreHistory = state.scoreHistory ?? {};
                         rotateControlEnabled = state.rotateControlEnabled ?? false; // NEW: Load this state
-                        activeCardElement = null;
-                        console.log("Game loaded.");
+                        activeCardElement = null; // Reset active card element
+                        console.log("Game loaded successfully.");
                         updateUIbasedOnGameState();
                         updateUndoButtonState();
 
                         // NEW: Set the toggle state visually after loading
+                        const rotateControlToggleElement = document.getElementById('rotate-control-toggle');
                         if (rotateControlToggleElement) {
                             rotateControlToggleElement.checked = rotateControlEnabled;
                         }
 
+                        // Handle potential pending state from interrupted game
                         const pendingKey = Object.keys(boardState).find(key => boardState[key]?.failedPlayerIds?.length > 0 && !boardState[key].state);
                         if (pendingKey) {
                             activeCardElement = document.getElementById(`card-${pendingKey.replace('-', '-')}`);
                             if (activeCardElement) {
-                                console.log("Loaded into pending state:", pendingKey);
+                                console.log("Loaded into pending steal state:", pendingKey);
                                 enablePlayerSelectionMode();
-                            } else console.error("Could not find pending card element:", pendingKey);
+                            } else console.error("Could not find pending card element for key:", pendingKey);
                         } else disablePlayerSelectionMode();
                         return true;
                     } else {
-                        console.warn("Invalid loaded state structure.");
+                        console.warn("Invalid loaded state structure. Clearing localStorage.");
                         localStorage.removeItem(STORAGE_KEY_GAME);
                     }
                 } catch (e) {
-                    console.error("Error parsing saved state:", e);
+                    console.error("Error parsing saved state from localStorage:", e);
                     localStorage.removeItem(STORAGE_KEY_GAME);
                 }
             }
             updateUIbasedOnGameState();
             updateUndoButtonState();
             // Ensure toggle reflects default state if no saved state
+            const rotateControlToggleElement = document.getElementById('rotate-control-toggle');
             if (rotateControlToggleElement) {
                 rotateControlToggleElement.checked = rotateControlEnabled;
             }
+            console.log("Finished loading game progress (no saved state or error occurred).");
             return false;
         }
-        function updateUIbasedOnGameState() { const pSE = document.getElementById('player-setup'); if (!scorePanelElement || !boardElement || !startGameBtnElement || !resetScoresBtnElement || !newGameBtnElement || !showFinalJeopardyBtnElement || !finalJeopardySectionElement) { console.error("Required UI elements missing."); return; } hideQuestionDisplay(); if (gameStarted) { if (pSE) pSE.style.display = 'none'; scorePanelElement.style.display = 'flex'; const isFJActive = finalJeopardySectionElement.style.display === 'block'; if (!isFJActive) { generateBoard(); if (answeredCluesCount >= totalClues) { console.log("Loading game state where board is clear. Starting Final Jeopardy."); if (boardElement) boardElement.style.display = 'none'; setupFinalJeopardy(); return; } else { if(victoryElement) victoryElement.style.display = 'none'; showFinalJeopardyBtnElement.disabled = true; const needsDDDetermination = !Object.values(boardState).some(s => s?.isDailyDouble); if (needsDDDetermination && answeredCluesCount < totalClues) { console.log("Determining Daily Double(s) on load as none were found."); determineDailyDouble(); saveGameProgress(); generateBoard(); } } } else { if(boardElement) boardElement.style.display = 'none'; showFinalJeopardyBtnElement.disabled = true; } updatePlayerCards(); updateScoreDisplay(); startGameBtnElement.disabled = true; resetScoresBtnElement.disabled = false; newGameBtnElement.disabled = false; } else { if (pSE) pSE.style.display = 'flex'; scorePanelElement.style.display = 'none'; boardElement.style.display = 'none'; updatePlayerCards(); updateScoreDisplay(); startGameBtnElement.disabled = players.length === 0; resetScoresBtnElement.disabled = true; if (undoBtnElement) undoBtnElement.disabled = true; showFinalJeopardyBtnElement.disabled = true; finalJeopardySectionElement.style.display = 'none'; if(victoryElement) victoryElement.style.display = 'none'; if(musicElement) musicElement.pause(); disablePlayerSelectionMode(); } drawScoreHistoryChart(); }
-        function setupFinalJeopardy() { // MODIFIED - Uses separate Q/A
-             if (finalJeopardySectionElement.style.display === 'block') { console.log("setupFinalJeopardy called but FJ already visible. Aborting."); return; } if (finalJeopardyQuestions.length === 0) { alert("No Final Jeopardy questions available!"); return; } const eligiblePlayers = players.filter(p => p.score > 0); if (eligiblePlayers.length === 0) { alert("No players have a positive score eligible for Final Jeopardy!"); showFinalResults(); return; } finalJeopardyData = finalJeopardyQuestions[Math.floor(Math.random() * finalJeopardyQuestions.length)]; if (!finalCategoryElement || !finalQuestionElement || !revealFinalQuestionBtnElement || !submitFinalWagersBtnElement || !judgeFinalAnswersBtnElement || !finalWagersContainerElement || !finalJeopardySectionElement ) { console.error("Final Jeopardy UI elements missing."); return; } console.log("Setting up Final Jeopardy..."); hideQuestionDisplay(); disablePlayerSelectionMode(); activeCardElement = null; finalCategoryElement.textContent = `Category: ${finalJeopardyData.category}`; finalQuestionElement.textContent = finalJeopardyData.question; // <<< Display only question
-             finalQuestionElement.style.display = 'none'; revealFinalQuestionBtnElement.style.display = 'inline-block'; submitFinalWagersBtnElement.style.display = 'none'; judgeFinalAnswersBtnElement.style.display = 'none'; finalWagersContainerElement.innerHTML = ''; eligiblePlayers.forEach(p => { const r = document.createElement('div'); r.className = 'wager-row'; const l = document.createElement('label'); l.htmlFor = `wager-${p.id}`; l.textContent = `${p.name} ($${p.score}):`; const i = document.createElement('input'); i.type = 'number'; i.id = `wager-${p.id}`; i.dataset.playerId = p.id; i.min = 0; i.max = p.score; i.placeholder = 'Enter wager'; i.required = true; r.appendChild(l); r.appendChild(i); finalWagersContainerElement.appendChild(r); }); if(boardElement) boardElement.style.display = 'none'; if(scorePanelElement) scorePanelElement.style.display = 'none'; if(victoryElement) victoryElement.style.display = 'none'; finalJeopardySectionElement.style.display = 'block'; if(showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.disabled = true; playSound(finalJeopardySound); launchConfetti(); saveGameProgress();
+        function updateUIbasedOnGameState() {
+            console.log("Updating UI based on game state...");
+            const pSE = document.getElementById('player-setup');
+            const scorePanelElement = document.getElementById('score-panel');
+            const boardElement = document.getElementById('board');
+            const startGameBtnElement = document.getElementById('start-game');
+            const resetScoresBtnElement = document.getElementById('reset-all-scores');
+            const newGameBtnElement = document.getElementById('new-game');
+            const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy');
+            const finalJeopardySectionElement = document.getElementById('final-jeopardy');
+            const victoryElement = document.getElementById('victory');
+            const musicElement = document.getElementById('bg-music');
+
+            // Check if all critical elements are present before proceeding
+            const uiElements = {
+                'player-setup': pSE, 'score-panel': scorePanelElement, 'board': boardElement,
+                'start-game': startGameBtnElement, 'reset-all-scores': resetScoresBtnElement,
+                'new-game': newGameBtnElement, 'show-final-jeopardy': showFinalJeopardyBtnElement,
+                'final-jeopardy': finalJeopardySectionElement
+            };
+            for (const [name, element] of Object.entries(uiElements)) {
+                if (!element) {
+                    console.error(`Required UI element #${name} not found. UI update aborted.`);
+                    return;
+                }
+            }
+
+            hideQuestionDisplay();
+            if (gameStarted) {
+                pSE.style.display = 'none';
+                scorePanelElement.style.display = 'flex';
+                const isFJActive = finalJeopardySectionElement.style.display === 'block';
+                if (!isFJActive) {
+                    generateBoard();
+                    if (answeredCluesCount >= totalClues) {
+                        console.log("Game state indicates board is clear. Starting Final Jeopardy.");
+                        if (boardElement) boardElement.style.display = 'none';
+                        setupFinalJeopardy();
+                        return;
+                    } else {
+                        if(victoryElement) victoryElement.style.display = 'none';
+                        showFinalJeopardyBtnElement.disabled = true;
+                        const needsDDDetermination = !Object.values(boardState).some(s => s?.isDailyDouble);
+                        if (needsDDDetermination && answeredCluesCount < totalClues) {
+                            console.log("Determining Daily Double(s) on load as none were found.");
+                            determineDailyDouble();
+                            saveGameProgress();
+                            generateBoard(); // Regenerate board after determining DDs
+                        }
+                    }
+                } else {
+                    if(boardElement) boardElement.style.display = 'none';
+                    showFinalJeopardyBtnElement.disabled = true;
+                }
+                updatePlayerCards();
+                updateScoreDisplay();
+                startGameBtnElement.disabled = true;
+                resetScoresBtnElement.disabled = false;
+                newGameBtnElement.disabled = false;
+            } else {
+                pSE.style.display = 'flex';
+                scorePanelElement.style.display = 'none';
+                if (boardElement) boardElement.style.display = 'none';
+                updatePlayerCards();
+                updateScoreDisplay();
+                startGameBtnElement.disabled = players.length === 0;
+                resetScoresBtnElement.disabled = true;
+                const undoBtnElement = document.getElementById('undo-score');
+                if (undoBtnElement) undoBtnElement.disabled = true;
+                showFinalJeopardyBtnElement.disabled = true;
+                finalJeopardySectionElement.style.display = 'none';
+                if(victoryElement) victoryElement.style.display = 'none';
+                if(musicElement) {
+                    musicElement.pause();
+                    musicElement.currentTime = 0;
+                }
+                disablePlayerSelectionMode();
+            }
+            drawScoreHistoryChart();
+            console.log("Finished updating UI based on game state.");
+        }
+        function setupFinalJeopardy() {
+             console.log("Setting up Final Jeopardy...");
+             const finalJeopardySectionElement = document.getElementById('final-jeopardy');
+             if (!finalJeopardySectionElement || finalJeopardySectionElement.style.display === 'block') { console.log("setupFinalJeopardy called but FJ already visible or element missing. Aborting."); return; }
+             if (finalJeopardyQuestions.length === 0) { alert("No Final Jeopardy questions available!"); return; }
+             const eligiblePlayers = players.filter(p => p.score >= 0); // Allow 0 score for FJ
+             if (eligiblePlayers.length === 0) { alert("No players available for Final Jeopardy!"); showFinalResults(); return; } // Should not happen if players array is managed
+
+             finalJeopardyData = finalJeopardyQuestions[Math.floor(Math.random() * finalJeopardyQuestions.length)];
+
+             // Get all necessary elements for FJ setup
+             const uiElements = {
+                 'final-category': document.getElementById('final-category'),
+                 'final-question': document.getElementById('final-question'),
+                 'reveal-final-question': document.getElementById('reveal-final-question'),
+                 'submit-final-wagers': document.getElementById('submit-final-wagers'),
+                 'judge-final-answers': document.getElementById('judge-final-answers'),
+                 'final-wagers': document.getElementById('final-wagers'),
+                 'show-final-jeopardy': document.getElementById('show-final-jeopardy'),
+                 'board': document.getElementById('board'),
+                 'score-panel': document.getElementById('score-panel'),
+                 'victory': document.getElementById('victory')
+             };
+             for (const [name, element] of Object.entries(uiElements)) {
+                 if (!element) {
+                     console.error(`Required Final Jeopardy UI element #${name} not found. FJ setup aborted.`);
+                     return;
+                 }
+             }
+
+             hideQuestionDisplay();
+             disablePlayerSelectionMode();
+             activeCardElement = null; // Ensure active card is cleared before FJ setup
+             uiElements['final-category'].textContent = `Category: ${finalJeopardyData.category}`;
+             uiElements['final-question'].textContent = finalJeopardyData.question; // <<< Display only question
+             uiElements['final-question'].style.display = 'none';
+             uiElements['reveal-final-question'].style.display = 'inline-block';
+             uiElements['submit-final-wagers'].style.display = 'none';
+             uiElements['judge-final-answers'].style.display = 'none';
+             uiElements['final-wagers'].innerHTML = '';
+
+             eligiblePlayers.forEach(p => {
+                 const r = document.createElement('div');
+                 r.className = 'wager-row';
+                 const l = document.createElement('label');
+                 l.htmlFor = `wager-${p.id}`;
+                 l.textContent = `${p.name} ($${p.score}):`;
+                 const i = document.createElement('input');
+                 i.type = 'number';
+                 i.id = `wager-${p.id}`;
+                 i.dataset.playerId = p.id;
+                 i.min = 0;
+                 i.max = p.score;
+                 i.placeholder = 'Enter wager';
+                 i.required = true;
+                 r.appendChild(l);
+                 r.appendChild(i);
+                 uiElements['final-wagers'].appendChild(r);
+             });
+
+             uiElements['board'].style.display = 'none';
+             uiElements['score-panel'].style.display = 'none';
+             uiElements['victory'].style.display = 'none';
+             finalJeopardySectionElement.style.display = 'block';
+             uiElements['show-final-jeopardy'].disabled = true;
+             playSound(document.getElementById('final-jeopardy-sound')); // Play FJ music
+             launchConfetti();
+             saveGameProgress();
+             console.log("Final Jeopardy setup complete.");
         }
 
         // --- High Scores & Tabs ---
-        function renderHighScores() { if (!highScoresListElement) return; try { const scores = JSON.parse(localStorage.getItem(STORAGE_KEY_SCORES) || '[]'); const sortedScores = scores.sort((a, b) => b.score - a.score).slice(0, 10); if (sortedScores.length === 0) highScoresListElement.innerHTML = '<li>No high scores recorded yet.</li>'; else highScoresListElement.innerHTML = sortedScores.map((s, i) => `<li><span>${i + 1}. ${s.name} (${new Date(s.date || Date.now()).toLocaleDateString()})</span><span>$${s.score}</span></li>`).join(''); } catch (e) { console.error("Error loading/rendering high scores:", e); highScoresListElement.innerHTML = '<li>Error loading scores.</li>'; } }
-        function saveScoresToHighScores() { const scoresToSave = players.map(p => ({ name: p.name, score: p.score, date: Date.now() })); if (scoresToSave.length === 0) return; try { const existingScores = JSON.parse(localStorage.getItem(STORAGE_KEY_SCORES) || '[]'); const updatedScores = [...existingScores, ...scoresToSave]; localStorage.setItem(STORAGE_KEY_SCORES, JSON.stringify(updatedScores)); renderHighScores(); alert("Current game scores saved to High Scores!"); if (resultsModalElement) resultsModalElement.classList.remove('show'); const highScoresTabButton = document.querySelector('.tab-button[data-tab="high-scores-tab"]'); if(highScoresTabButton) highScoresTabButton.click(); } catch (e) { console.error("Error saving scores to high scores:", e); alert("Failed to save scores."); } }
-        function setupTabs() { const tabButtons = document.querySelectorAll('.tab-button'); const tabContents = document.querySelectorAll('.tab-content'); tabButtons.forEach(button => { button.addEventListener('click', () => { const targetTabId = button.dataset.tab; if (!targetTabId) return; tabButtons.forEach(btn => btn.classList.remove('active')); tabContents.forEach(content => content.classList.remove('active')); button.classList.add('active'); const activeContent = document.getElementById(targetTabId); if (activeContent) { activeContent.classList.add('active'); if (targetTabId === 'score-history-tab') drawScoreHistoryChart(); else if (targetTabId === 'high-scores-tab') renderHighScores(); } else console.warn("Tab content not found for ID:", targetTabId); }); }); const initialActiveButton = document.querySelector('.tab-button.active'); if (initialActiveButton) { const initialTabId = initialActiveButton.dataset.tab; const initialContent = document.getElementById(initialTabId); if(initialContent) initialContent.classList.add('active'); if (initialTabId === 'score-history-tab') drawScoreHistoryChart(); else if (initialTabId === 'high-scores-tab') renderHighScores(); } else if (tabButtons.length > 0) { tabButtons[0].click(); } }
-        function drawScoreHistoryChart() { if (!scoreHistoryChartCanvas || !chartPlaceholderText) return; const ctx = scoreHistoryChartCanvas.getContext('2d'); if (!ctx) return; if (activeChart) { activeChart.destroy(); activeChart = null; } const datasets = players.filter(p => scoreHistory[p.id] && scoreHistory[p.id].length > 0).map(p => { const history = scoreHistory[p.id] || []; const filteredHistory = [...history].sort((a, b) => a.turn - b.turn); if (filteredHistory.length === 0 || filteredHistory[0].turn !== 0) { filteredHistory.unshift({ turn: 0, score: 0 }); } const uniqueTurnHistory = []; const turnsSeen = new Set(); for (let i = filteredHistory.length - 1; i >= 0; i--) { const entry = filteredHistory[i]; if (!turnsSeen.has(entry.turn)) { uniqueTurnHistory.unshift(entry); turnsSeen.add(entry.turn); } } return { label: p.name, data: uniqueTurnHistory.map(e => ({ x: e.turn, y: e.score })), borderColor: p.color, backgroundColor: p.color + '30', fill: false, tension: 0.1 }; }); if (datasets.length > 0) { chartPlaceholderText.style.display = 'none'; scoreHistoryChartCanvas.style.display = 'block'; activeChart = new Chart(ctx, { type: 'line', data: { datasets }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'linear', title: { display: true, text: 'Action Turn Number' }, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }, y: { title: { display: true, text: 'Score ($)' }, beginAtZero: false } }, plugins: { title: { display: true, text: 'Score Progression Over Turns'}, tooltip: { mode: 'index', intersect: false } }, interaction: { mode: 'nearest', axis: 'x', intersect: false } } }); } else { chartPlaceholderText.style.display = 'block'; scoreHistoryChartCanvas.style.display = 'none'; } }
-        function updateUndoButtonState() { if (undoBtnElement) undoBtnElement.disabled = historyStack.length === 0; }
-        function showFinalResults() { if (!finalResultsElement || !resultsModalElement) return; const sortedPlayers = [...players].sort((a, b) => b.score - a.score); finalResultsElement.innerHTML = sortedPlayers.map(p => `<div>${p.name}: $${p.score}</div>`).join(''); resultsModalElement.classList.add('show'); }
+        function renderHighScores() {
+            const highScoresListElement = document.getElementById('high-scores-list');
+            if (!highScoresListElement) {
+                console.error("highScoresListElement not found in renderHighScores. Cannot render high scores.");
+                return;
+            }
+            try {
+                const scores = JSON.parse(localStorage.getItem(STORAGE_KEY_SCORES) || '[]');
+                const sortedScores = scores.sort((a, b) => b.score - a.score).slice(0, 10);
+                if (sortedScores.length === 0) highScoresListElement.innerHTML = '<li>No high scores recorded yet.</li>';
+                else highScoresListElement.innerHTML = sortedScores.map((s, i) => `<li><span>${i + 1}. ${s.name} (${new Date(s.date || Date.now()).toLocaleDateString()})</span><span>$${s.score}</span></li>`).join('');
+            } catch (e) {
+                console.error("Error loading/rendering high scores:", e);
+                highScoresListElement.innerHTML = '<li>Error loading scores.</li>';
+            }
+        }
+        function saveScoresToHighScores() {
+            const scoresToSave = players.map(p => ({ name: p.name, score: p.score, date: Date.now() }));
+            if (scoresToSave.length === 0) return;
+            try {
+                const existingScores = JSON.parse(localStorage.getItem(STORAGE_KEY_SCORES) || '[]');
+                const updatedScores = [...existingScores, ...scoresToSave];
+                localStorage.setItem(STORAGE_KEY_SCORES, JSON.stringify(updatedScores));
+                renderHighScores();
+                alert("Current game scores saved to High Scores!");
+                const resultsModalElement = document.getElementById('results-modal');
+                if (resultsModalElement) resultsModalElement.classList.remove('show');
+                const highScoresTabButton = document.querySelector('.tab-button[data-tab="high-scores-tab"]');
+                if(highScoresTabButton) highScoresTabButton.click();
+            } catch (e) {
+                console.error("Error saving scores to high scores:", e);
+                alert("Failed to save scores.");
+            }
+        }
+        function setupTabs() {
+            console.log("Setting up tabs...");
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetTabId = button.dataset.tab;
+                    if (!targetTabId) return;
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    button.classList.add('active');
+                    const activeContent = document.getElementById(targetTabId);
+                    if (activeContent) {
+                        activeContent.classList.add('active');
+                        if (targetTabId === 'score-history-tab') drawScoreHistoryChart();
+                        else if (targetTabId === 'high-scores-tab') renderHighScores();
+                    } else console.warn("Tab content not found for ID:", targetTabId);
+                });
+            });
+            const initialActiveButton = document.querySelector('.tab-button.active');
+            if (initialActiveButton) {
+                const initialTabId = initialActiveButton.dataset.tab;
+                const initialContent = document.getElementById(initialTabId);
+                if(initialContent) initialContent.classList.add('active');
+                if (initialTabId === 'score-history-tab') drawScoreHistoryChart();
+                else if (initialTabId === 'high-scores-tab') renderHighScores();
+            } else if (tabButtons.length > 0) {
+                tabButtons[0].click(); // Activate the first tab by default
+            }
+            console.log("Tabs setup complete.");
+        }
+        function drawScoreHistoryChart() {
+            console.log("Drawing score history chart...");
+            const scoreHistoryChartCanvas = document.getElementById('score-history-chart');
+            const chartPlaceholderText = document.getElementById('chart-placeholder-text');
+
+            if (!scoreHistoryChartCanvas) { console.error("Canvas element #score-history-chart not found."); return; }
+            if (!chartPlaceholderText) { console.error("Placeholder text element #chart-placeholder-text not found."); return; }
+
+            const ctx = scoreHistoryChartCanvas.getContext('2d');
+            if (!ctx) { console.error("Could not get canvas context."); return; }
+            if (activeChart) {
+                activeChart.destroy();
+                activeChart = null;
+            }
+            const datasets = players.filter(p => scoreHistory[p.id] && scoreHistory[p.id].length > 0).map(p => {
+                const history = scoreHistory[p.id] || [];
+                const filteredHistory = [...history].sort((a, b) => a.turn - b.turn);
+                // Ensure the chart starts from turn 0 with score 0 if no entry exists
+                if (filteredHistory.length === 0 || filteredHistory[0].turn !== 0) {
+                    filteredHistory.unshift({ turn: 0, score: 0 });
+                }
+                // Remove duplicate turns, keeping the latest score for a given turn
+                const uniqueTurnHistory = [];
+                const turnsSeen = new Set();
+                for (let i = filteredHistory.length - 1; i >= 0; i--) {
+                    const entry = filteredHistory[i];
+                    if (!turnsSeen.has(entry.turn)) {
+                        uniqueTurnHistory.unshift(entry);
+                        turnsSeen.add(entry.turn);
+                    }
+                }
+                return {
+                    label: p.name,
+                    data: uniqueTurnHistory.map(e => ({ x: e.turn, y: e.score })),
+                    borderColor: p.color,
+                    backgroundColor: p.color + '30',
+                    fill: false,
+                    tension: 0.1
+                };
+            });
+
+            if (datasets.length > 0) {
+                chartPlaceholderText.style.display = 'none';
+                scoreHistoryChartCanvas.style.display = 'block';
+                activeChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                title: { display: true, text: 'Action Turn Number' },
+                                beginAtZero: true,
+                                ticks: { stepSize: 1, precision: 0 }
+                            },
+                            y: {
+                                title: { display: true, text: 'Score ($)' },
+                                beginAtZero: false // Allow scores to start above zero if necessary
+                            }
+                        },
+                        plugins: {
+                            title: { display: true, text: 'Score Progression Over Turns' },
+                            tooltip: { mode: 'index', intersect: false }
+                        },
+                        interaction: { mode: 'nearest', axis: 'x', intersect: false }
+                    }
+                });
+                console.log("Chart drawn successfully.");
+            } else {
+                chartPlaceholderText.style.display = 'block';
+                scoreHistoryChartCanvas.style.display = 'none';
+                console.log("No data to draw chart.");
+            }
+        }
+        function updateUndoButtonState() {
+            const undoBtnElement = document.getElementById('undo-score');
+            if (!undoBtnElement) {
+                console.error("undoBtnElement not found when updating undo button state.");
+                return;
+            }
+            undoBtnElement.disabled = historyStack.length === 0;
+        }
+        function showFinalResults() {
+            console.log("Showing final results...");
+            const finalResultsElement = document.getElementById('final-results');
+            const resultsModalElement = document.getElementById('results-modal');
+            if (!finalResultsElement) { console.error("finalResultsElement not found."); return; }
+            if (!resultsModalElement) { console.error("resultsModalElement not found."); return; }
+
+            const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+            finalResultsElement.innerHTML = sortedPlayers.map(p => `<div>${p.name}: $${p.score}</div>`).join('');
+            resultsModalElement.classList.add('show');
+            console.log("Final results displayed.");
+        }
 
         // --- Event Listeners Setup ---
         function setupEventListeners() {
             console.log("Setting up event listeners...");
-            if(addPlayerBtnElement) {
-                console.log("Add player button found, attaching listener.");
-                addPlayerBtnElement.addEventListener('click', () => { console.log("Add Player button clicked."); if (!playerNameInputElement) { console.error("Player name input not found!"); return; } const name = playerNameInputElement.value.trim(); if (!name) { alert("Please enter a player name."); return; } if (players.length >= PLAYER_COLORS.length) { alert("Maximum number of players reached."); return; } const id = Date.now().toString(36) + Math.random().toString(36).substring(2); players.push({ id, name, score: 0, color: PLAYER_COLORS[players.length % PLAYER_COLORS.length] }); playerNameInputElement.value = ''; updatePlayerCards(); if(startGameBtnElement) startGameBtnElement.disabled = players.length === 0; playerNameInputElement.focus(); console.log("Player added:", name); saveGameProgress(); });
-            } else { console.error("Add player button element not found!"); }
-            if(startGameBtnElement) startGameBtnElement.addEventListener('click', () => { if (players.length === 0) { alert("Please add at least one player to start."); return; } gameStarted = true; playerTurnIndex = 0; currentPlayerId = players[playerTurnIndex]?.id; answeredCluesCount = 0; boardState = {}; historyStack = []; scoreHistory = {}; players.forEach(p => { p.score = 0; scoreHistory[p.id] = [{ turn: 0, score: 0 }]; }); turnCounter = 0; determineDailyDouble(); updateUIbasedOnGameState(); updateUndoButtonState(); if (musicToggleElement?.checked && musicElement) { musicElement.currentTime = 0; playSound(musicElement); } saveGameProgress(); });
-            if(applyScoreBtnElement) applyScoreBtnElement.addEventListener('click', () => { if (!currentPlayerId || !manualScoreInputElement) return; const targetScore = parseInt(manualScoreInputElement.value, 10); if (isNaN(targetScore)) { alert("Please enter a valid number for the score."); return; } const player = getPlayerById(currentPlayerId); if (player) { const delta = targetScore - player.score; turnCounter++; updatePlayerScore(currentPlayerId, delta, false, 'manual_update'); manualScoreInputElement.value = ''; } });
-            if(undoBtnElement) undoBtnElement.addEventListener('click', () => { const lastAction = historyStack.pop(); updateUndoButtonState(); if (!lastAction) return; console.log("Attempting Undo:", lastAction); hideQuestionDisplay(); if (lastAction.action === 'score') { const player = getPlayerById(lastAction.playerId); if (player) { const originalScore = player.score - lastAction.delta; player.score = originalScore; if (scoreHistory[lastAction.playerId]) { scoreHistory[lastAction.playerId] = scoreHistory[lastAction.playerId].filter(e => e.turn < lastAction.turn || (e.turn === lastAction.turn && e.score === originalScore)); } console.log(`Undo Score: ${player.name} reverted to ${player.score}`); } else { console.warn("Undo failed: Player not found", lastAction.playerId); historyStack.push(lastAction); updateUndoButtonState(); return; } if (lastAction.cardKey && lastAction.cardKey !== 'manual_update' && lastAction.cardKey !== 'final_jeopardy') { const cardEl = document.querySelector(`.card[data-state-key="${lastAction.cardKey}"]`); const cardState = boardState[lastAction.cardKey]; if (cardState && cardEl) { const wasCorrect = cardState.state === 'correct' && cardState.playerId === lastAction.playerId; const wasWrongFinal = cardState.state === 'wrong'; const wasFailedAttempt = lastAction.delta < 0 && cardState.failedPlayerIds?.includes(lastAction.playerId); console.log(`Undo Card State Check: Key=${lastAction.cardKey}, Correct=${wasCorrect}, WrongFinal=${wasWrongFinal}, FailedAttempt=${wasFailedAttempt}`); if (wasCorrect || wasWrongFinal) { answeredCluesCount--; console.log("Undo: Decremented answered count to", answeredCluesCount); } cardState.state = null; cardState.playerId = null; if (wasFailedAttempt && cardState.failedPlayerIds) { const fIdx = cardState.failedPlayerIds.indexOf(lastAction.playerId); if (fIdx > -1) { cardState.failedPlayerIds.splice(fIdx, 1); console.log(`Undo: Removed ${player?.name} from failed list for ${lastAction.cardKey}`); } } cardEl.classList.remove('disabled', 'correct', 'wrong', 'pending-steal', 'flipped');
-                        const fF = cardEl.querySelector('.card-front');
-                        if (fF) { fF.textContent = `$${cardEl.dataset.value}`; fF.classList.remove('empty-value'); }
-                        const bF = cardEl.querySelector('.card-back');
-                        const jB = bF?.querySelector('.judge-buttons');
-                        if(jB) {
-                            jB.style.display = 'none'; // Initially hide all buttons
-                            const c=jB.querySelector('.correct-btn'); if(c)c.onclick=null;
-                            const w=jB.querySelector('.wrong-btn'); if(w)w.onclick=null;
-                            const rA = jB.querySelector('.reveal-answer-btn');
-                            if(rA) rA.onclick=null; // Clear reveal button handler
+
+            // --- Player Setup ---
+            const addPlayerBtnElement = document.getElementById('add-player');
+            const playerNameInputElement = document.getElementById('player-name');
+            console.log("addPlayerBtnElement in setupEventListeners:", addPlayerBtnElement); // Debugging
+
+            if(addPlayerBtnElement && playerNameInputElement) {
+                addPlayerBtnElement.addEventListener('click', () => {
+                    const name = playerNameInputElement.value.trim();
+                    if (!name) { alert("Please enter a player name."); return; }
+                    if (players.length >= PLAYER_COLORS.length) { alert("Maximum number of players reached."); return; }
+                    const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
+                    players.push({ id, name, score: 0, color: PLAYER_COLORS[players.length % PLAYER_COLORS.length] });
+                    playerNameInputElement.value = '';
+                    updatePlayerCards();
+                    const startGameBtnElement = document.getElementById('start-game');
+                    if(startGameBtnElement) startGameBtnElement.disabled = players.length === 0;
+                    playerNameInputElement.focus();
+                    console.log("Player added:", name);
+                    saveGameProgress();
+                });
+            } else {
+                if (!addPlayerBtnElement) console.error("Add player button element not found!");
+                if (!playerNameInputElement) console.error("Player name input element not found!");
+            }
+
+            // --- Game Controls ---
+            const startGameBtnElement = document.getElementById('start-game');
+            const applyScoreBtnElement = document.getElementById('apply-score');
+            const manualScoreInputElement = document.getElementById('manual-score');
+            const undoBtnElement = document.getElementById('undo-score');
+            const resetScoresBtnElement = document.getElementById('reset-all-scores');
+            const newGameBtnElement = document.getElementById('new-game');
+            const musicToggleElement = document.getElementById('music-toggle');
+            const rotateControlToggleElement = document.getElementById('rotate-control-toggle'); // NEW DOM reference
+
+            if(startGameBtnElement) startGameBtnElement.addEventListener('click', () => {
+                if (players.length === 0) { alert("Please add at least one player to start."); return; }
+                gameStarted = true;
+                playerTurnIndex = 0;
+                currentPlayerId = players[playerTurnIndex]?.id;
+                answeredCluesCount = 0;
+                boardState = {}; // Reset board state
+                historyStack = []; // Reset history
+                scoreHistory = {}; // Reset score history
+                players.forEach(p => {
+                    p.score = 0; // Reset player scores
+                    scoreHistory[p.id] = [{ turn: 0, score: 0 }]; // Initialize score history for each player
+                });
+                turnCounter = 0;
+                determineDailyDouble(); // Randomly place DDs
+                updateUIbasedOnGameState();
+                updateUndoButtonState();
+                const musicElement = document.getElementById('bg-music');
+                if (musicToggleElement?.checked && musicElement) {
+                    musicElement.currentTime = 0;
+                    playSound(musicElement);
+                }
+                saveGameProgress();
+            });
+            if(applyScoreBtnElement && manualScoreInputElement) applyScoreBtnElement.addEventListener('click', () => {
+                if (!currentPlayerId) return;
+                const targetScore = parseInt(manualScoreInputElement.value, 10);
+                if (isNaN(targetScore)) { alert("Please enter a valid number for the score."); return; }
+                const player = getPlayerById(currentPlayerId);
+                if (player) {
+                    const delta = targetScore - player.score;
+                    turnCounter++;
+                    updatePlayerScore(currentPlayerId, delta, false, 'manual_update');
+                    manualScoreInputElement.value = '';
+                }
+            });
+            if(undoBtnElement) undoBtnElement.addEventListener('click', () => {
+                const lastAction = historyStack.pop();
+                updateUndoButtonState();
+                if (!lastAction) return; // Nothing to undo
+                console.log("Attempting Undo:", lastAction);
+                hideQuestionDisplay(); // Hide any active question display
+
+                if (lastAction.action === 'score') {
+                    const player = getPlayerById(lastAction.playerId);
+                    if (player) {
+                        const originalScore = player.score - lastAction.delta; // Calculate score before the action
+                        player.score = originalScore;
+                        // Clean up score history to match the undone state
+                        if (scoreHistory[lastAction.playerId]) {
+                            scoreHistory[lastAction.playerId] = scoreHistory[lastAction.playerId].filter(e => e.turn < lastAction.turn || (e.turn === lastAction.turn && e.score === originalScore));
                         }
-                        const qText = bF?.querySelector('.question-text');
-                        if (qText) qText.textContent = ''; // Clear the answer text on undo
-                        cardEl.removeEventListener('click', handleCardClick);
-                        cardEl.addEventListener('click', handleCardClick);
-                        console.log(`Undo: Reverted card ${lastAction.cardKey} state.`);
-                        activeCardElement = null;
-                        disablePlayerSelectionMode();
-                    } else { console.warn("Undo Card State Error: Card state or element not found", lastAction.cardKey); } } updatePlayerCards(); updateScoreDisplay(); drawScoreHistoryChart(); saveGameProgress(); updateUIbasedOnGameState(); } else if (lastAction) { historyStack.push(lastAction); updateUndoButtonState(); console.warn("Undo action type not implemented:", lastAction.action); } });
-            if(resetScoresBtnElement) resetScoresBtnElement.addEventListener('click', () => { if (confirm("Are you sure you want to reset all player scores to $0? This cannot be undone.")) { historyStack = []; scoreHistory = {}; players.forEach(p => { p.score = 0; scoreHistory[p.id] = [{ turn: 0, score: 0 }]; }); turnCounter = 0; updatePlayerCards(); updateScoreDisplay(); updateUndoButtonState(); drawScoreHistoryChart(); saveGameProgress(); alert("All player scores have been reset to $0."); hideQuestionDisplay();} });
-            if(newGameBtnElement) newGameBtnElement.addEventListener('click', () => { if (confirm("Are you sure you want to start a completely new game? All current progress (players, scores, board) will be lost.")) { localStorage.removeItem(STORAGE_KEY_GAME); players = []; currentPlayerId = null; gameStarted = false; boardState = {}; historyStack = []; scoreHistory = {}; answeredCluesCount = 0; currentWager = 0; turnCounter = 0; playerTurnIndex = 0; activeCardElement = null; if (activeChart) { activeChart.destroy(); activeChart = null; } const pSE = document.getElementById('player-setup'); if (pSE) pSE.style.display = 'flex'; if (playerListElement) playerListElement.innerHTML = ''; if (scorePanelElement) scorePanelElement.style.display = 'none'; if (boardElement) { boardElement.style.display = 'none'; boardElement.innerHTML = ''; } if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none'; if (victoryElement) victoryElement.style.display = 'none'; if (resultsModalElement) resultsModalElement.classList.remove('show'); if (playerNameInputElement) playerNameInputElement.value = ''; if (startGameBtnElement) startGameBtnElement.disabled = true; if (showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.disabled = true; if (resetScoresBtnElement) resetScoresBtnElement.disabled = true; if (undoBtnElement) undoBtnElement.disabled = true; if(musicElement) { musicElement.pause(); musicElement.currentTime = 0; } disablePlayerSelectionMode(); updateScoreDisplay(); updateUndoButtonState(); hideQuestionDisplay(); const gameTabButton = document.querySelector('.tab-button[data-tab="game-tab"]'); if(gameTabButton && !gameTabButton.classList.contains('active')) gameTabButton.click(); alert("New game started. Please add players."); } });
-            if(musicToggleElement) musicToggleElement.addEventListener('change', () => { if (musicToggleElement.checked && gameStarted && musicElement) { if (musicElement.paused) { playSound(musicElement); } } else if(musicElement) { musicElement.pause(); } });
+                        console.log(`Undo Score: ${player.name} reverted to ${player.score}`);
+                    } else {
+                        console.warn("Undo failed: Player not found for score action", lastAction.playerId);
+                        historyStack.push(lastAction); // Put it back if player not found
+                        updateUndoButtonState();
+                        return;
+                    }
+
+                    // If the action involved a card, revert card state
+                    if (lastAction.cardKey && lastAction.cardKey !== 'manual_update' && lastAction.cardKey !== 'final_jeopardy') {
+                        const cardEl = document.querySelector(`.card[data-state-key="${lastAction.cardKey}"]`);
+                        const cardState = boardState[lastAction.cardKey];
+
+                        if (cardState && cardEl) {
+                            const wasCorrect = cardState.state === 'correct' && cardState.playerId === lastAction.playerId;
+                            const wasWrongFinal = cardState.state === 'wrong';
+                            const wasFailedAttempt = lastAction.delta < 0 && cardState.failedPlayerIds?.includes(lastAction.playerId); // Check if this player was marked as failed attempt
+
+                            if (wasCorrect || wasWrongFinal) { // If the card was fully resolved
+                                answeredCluesCount--; // Decrement answered count
+                                console.log("Undo: Decremented answered count to", answeredCluesCount);
+                            }
+
+                            // Reset card state
+                            cardState.state = null;
+                            cardState.playerId = null;
+                            if (wasFailedAttempt && cardState.failedPlayerIds) {
+                                const fIdx = cardState.failedPlayerIds.indexOf(lastAction.playerId);
+                                if (fIdx > -1) {
+                                    cardState.failedPlayerIds.splice(fIdx, 1); // Remove player from failed list
+                                    console.log(`Undo: Removed ${player?.name} from failed list for ${lastAction.cardKey}`);
+                                }
+                            }
+                            cardEl.classList.remove('disabled', 'correct', 'wrong', 'pending-steal', 'flipped');
+                            const fF = cardEl.querySelector('.card-front');
+                            if (fF) {
+                                fF.textContent = `$${cardEl.dataset.value}`; // Restore value
+                                fF.classList.remove('empty-value');
+                            }
+                            const bF = cardEl.querySelector('.card-back');
+                            const jB = bF?.querySelector('.judge-buttons');
+                            if(jB) {
+                                jB.style.display = 'none'; // Hide judge buttons initially
+                                const c=jB.querySelector('.correct-btn'); if(c)c.onclick=null;
+                                const w=jB.querySelector('.wrong-btn'); if(w)w.onclick=null;
+                                const rA = jB.querySelector('.reveal-answer-btn');
+                                if(rA) rA.onclick=null; // Clear reveal button handler
+                            }
+                            const qText = bF?.querySelector('.question-text');
+                            if (qText) qText.textContent = ''; // Clear the answer text on undo
+
+                            // Re-attach click listener
+                            cardEl.removeEventListener('click', handleCardClick);
+                            cardEl.addEventListener('click', handleCardClick);
+                            console.log(`Undo: Reverted card ${lastAction.cardKey} state.`);
+                            activeCardElement = null; // Clear active card
+                            disablePlayerSelectionMode(); // Ensure selection modes are off
+                        } else { console.warn("Undo Card State Error: Card state or element not found for key", lastAction.cardKey); }
+                    }
+                    updatePlayerCards();
+                    updateScoreDisplay();
+                    drawScoreHistoryChart();
+                    saveGameProgress();
+                    updateUIbasedOnGameState(); // Ensure overall UI reflects the undo
+                } else if (lastAction) { // Handle other potential action types if implemented
+                    historyStack.push(lastAction); // Put it back if action type is unknown
+                    updateUndoButtonState();
+                    console.warn("Undo action type not implemented:", lastAction.action);
+                }
+            });
+            if(resetScoresBtnElement) resetScoresBtnElement.addEventListener('click', () => {
+                if (confirm("Are you sure you want to reset all player scores to $0? This cannot be undone.")) {
+                    historyStack = [];
+                    scoreHistory = {};
+                    players.forEach(p => {
+                        p.score = 0;
+                        scoreHistory[p.id] = [{ turn: 0, score: 0 }];
+                    });
+                    turnCounter = 0;
+                    updatePlayerCards();
+                    updateScoreDisplay();
+                    updateUndoButtonState();
+                    drawScoreHistoryChart();
+                    saveGameProgress();
+                    alert("All player scores have been reset to $0.");
+                    hideQuestionDisplay();
+                }
+            });
+            if(newGameBtnElement) newGameBtnElement.addEventListener('click', () => {
+                if (confirm("Are you sure you want to start a completely new game? All current progress (players, scores, board) will be lost.")) {
+                    localStorage.removeItem(STORAGE_KEY_GAME); // Clear saved game
+                    players = [];
+                    currentPlayerId = null;
+                    gameStarted = false;
+                    boardState = {};
+                    historyStack = [];
+                    scoreHistory = {};
+                    answeredCluesCount = 0;
+                    currentWager = 0;
+                    turnCounter = 0;
+                    playerTurnIndex = 0;
+                    activeCardElement = null;
+                    if (activeChart) { activeChart.destroy(); activeChart = null; } // Destroy chart if it exists
+
+                    // Reset UI elements to initial state
+                    const pSE = document.getElementById('player-setup');
+                    if (pSE) pSE.style.display = 'flex';
+                    const playerListElement = document.getElementById('player-list');
+                    if (playerListElement) playerListElement.innerHTML = '';
+                    const scorePanelElement = document.getElementById('score-panel');
+                    if (scorePanelElement) scorePanelElement.style.display = 'none';
+                    const boardElement = document.getElementById('board');
+                    if (boardElement) { boardElement.style.display = 'none'; boardElement.innerHTML = ''; }
+                    const finalJeopardySectionElement = document.getElementById('final-jeopardy');
+                    if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none';
+                    const victoryElement = document.getElementById('victory');
+                    if (victoryElement) victoryElement.style.display = 'none';
+                    const resultsModalElement = document.getElementById('results-modal');
+                    if (resultsModalElement) resultsModalElement.classList.remove('show');
+                    const playerNameInputElement = document.getElementById('player-name');
+                    if (playerNameInputElement) playerNameInputElement.value = '';
+
+                    // Reset button states
+                    if (startGameBtnElement) startGameBtnElement.disabled = true;
+                    const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy');
+                    if (showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.disabled = true;
+                    if (resetScoresBtnElement) resetScoresBtnElement.disabled = true;
+                    if (undoBtnElement) undoBtnElement.disabled = true;
+
+                    const musicElement = document.getElementById('bg-music');
+                    if(musicElement) { musicElement.pause(); musicElement.currentTime = 0; }
+                    disablePlayerSelectionMode();
+                    updateScoreDisplay();
+                    updateUndoButtonState();
+                    hideQuestionDisplay();
+
+                    // Switch back to game tab if not already active
+                    const gameTabButton = document.querySelector('.tab-button[data-tab="game-tab"]');
+                    if(gameTabButton && !gameTabButton.classList.contains('active')) gameTabButton.click();
+                    alert("New game started. Please add players.");
+                }
+            });
+            if(musicToggleElement) musicToggleElement.addEventListener('change', () => {
+                const musicElement = document.getElementById('bg-music');
+                if (musicToggleElement.checked && gameStarted && musicElement) {
+                    if (musicElement.paused) {
+                        playSound(musicElement);
+                    }
+                } else if(musicElement) {
+                    musicElement.pause();
+                }
+            });
             // NEW Event Listener for rotate control
             if(rotateControlToggleElement) {
                 rotateControlToggleElement.addEventListener('change', () => {
@@ -614,7 +2004,17 @@
                     saveGameProgress(); // Save the new setting
                 });
             }
-            if(showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.addEventListener('click', setupFinalJeopardy); // Kept, but button is disabled
+
+            // --- Final Jeopardy Controls ---
+            const showFinalJeopardyBtnElement = document.getElementById('show-final-jeopardy');
+            const finalQuestionElement = document.getElementById('final-question');
+            const revealFinalQuestionBtnElement = document.getElementById('reveal-final-question');
+            const submitFinalWagersBtnElement = document.getElementById('submit-final-wagers');
+            const judgeFinalAnswersBtnElement = document.getElementById('judge-final-answers');
+            const finalWagersContainerElement = document.getElementById('final-wagers');
+            const finalJeopardySectionElement = document.getElementById('final-jeopardy');
+
+            if(showFinalJeopardyBtnElement) showFinalJeopardyBtnElement.addEventListener('click', setupFinalJeopardy);
             if(revealFinalQuestionBtnElement) revealFinalQuestionBtnElement.addEventListener('click', () => {
                 if (finalQuestionElement) {
                     finalQuestionElement.style.display = 'block';
@@ -630,28 +2030,84 @@
                 const firstWagerInput = finalWagersContainerElement?.querySelector('input[type="number"]');
                 if(firstWagerInput) firstWagerInput.focus();
             });
-            if(submitFinalWagersBtnElement) submitFinalWagersBtnElement.addEventListener('click', () => { let allValid = true; const wagerInputs = finalWagersContainerElement?.querySelectorAll('.wager-row input[type="number"]'); if (!wagerInputs) return; wagerInputs.forEach(input => { const wager = parseInt(input.value, 10); const maxWager = parseInt(input.max, 10); if (isNaN(wager) || wager < 0 || wager > maxWager) { allValid = false; input.style.border = '2px solid red'; input.disabled = false; } else { input.style.border = ''; input.disabled = true; } }); if (!allValid) { alert("Please correct the invalid wagers (highlighted in red). Ensure they are numbers between $0 and the player's current score."); return; } submitFinalWagersBtnElement.disabled = true; if (judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.style.display = 'inline-block'; alert("Wagers locked in. Reveal answers and judge."); });
-            if(judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.addEventListener('click', () => { // MODIFIED - Reveal answer after loop
-                 finalWagersContainerElement?.querySelectorAll('.wager-row input[type="number"]').forEach(input => { const playerId = input.dataset.playerId; const wager = parseInt(input.value, 10); const player = getPlayerById(playerId); if (player && !isNaN(wager)) { const isCorrect = confirm(`Did ${player.name} answer the Final Jeopardy question correctly?`); const delta = isCorrect ? wager : -wager; turnCounter++; updatePlayerScore(playerId, delta, false, 'final_jeopardy'); } });
-                 if (finalJeopardyData && finalQuestionElement) { finalQuestionElement.textContent = `${finalJeopardyData.question} (A: ${finalJeopardyData.answer})`; finalQuestionElement.style.display = 'block'; } // Reveal answer
+            if(submitFinalWagersBtnElement) submitFinalWagersBtnElement.addEventListener('click', () => {
+                let allValid = true;
+                const wagerInputs = finalWagersContainerElement?.querySelectorAll('.wager-row input[type="number"]');
+                if (!wagerInputs) return;
+                wagerInputs.forEach(input => {
+                    const wager = parseInt(input.value, 10);
+                    const maxWager = parseInt(input.max, 10);
+                    if (isNaN(wager) || wager < 0 || wager > maxWager) {
+                        allValid = false;
+                        input.style.border = '2px solid red';
+                        input.disabled = false; // Ensure it's not disabled if invalid
+                    } else {
+                        input.style.border = ''; // Clear red border
+                        input.disabled = true; // Disable input once wager is locked
+                    }
+                });
+                if (!allValid) {
+                    alert("Please correct the invalid wagers (highlighted in red). Ensure they are numbers between $0 and the player's current score.");
+                    return;
+                }
+                submitFinalWagersBtnElement.disabled = true;
+                if (judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.style.display = 'inline-block';
+                alert("Wagers locked in. Reveal answers and judge.");
+            });
+            if(judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.addEventListener('click', () => {
+                 console.log("Judging Final Jeopardy answers...");
+                 finalWagersContainerElement?.querySelectorAll('.wager-row input[type="number"]').forEach(input => {
+                    const playerId = input.dataset.playerId;
+                    const wager = parseInt(input.value, 10);
+                    const player = getPlayerById(playerId);
+                    if (player && !isNaN(wager)) {
+                        const isCorrect = confirm(`Did ${player.name} answer the Final Jeopardy question correctly?`);
+                        const delta = isCorrect ? wager : -wager;
+                        turnCounter++;
+                        updatePlayerScore(playerId, delta, false, 'final_jeopardy'); // Use 'final_jeopardy' as cardKey
+                    }
+                });
+                 // Reveal the answer on the Final Jeopardy card
+                 if (finalJeopardyData && finalQuestionElement) {
+                    finalQuestionElement.textContent = `${finalJeopardyData.question} (A: ${finalJeopardyData.answer})`;
+                    finalQuestionElement.style.display = 'block';
+                }
                  if (judgeFinalAnswersBtnElement) judgeFinalAnswersBtnElement.style.display = 'none';
-                 setTimeout(() => { if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none'; showFinalResults(); launchConfetti(); saveGameProgress(); }, 3000); // Delay results display
+                 setTimeout(() => {
+                    if (finalJeopardySectionElement) finalJeopardySectionElement.style.display = 'none';
+                    showFinalResults();
+                    launchConfetti();
+                    saveGameProgress();
+                }, 3000); // Delay results display to allow user to see FJ answer
              });
-            if(modalCloseElement) modalCloseElement.addEventListener('click', () => { if(resultsModalElement) resultsModalElement.classList.remove('show'); });
+
+            // --- Modal Controls ---
+            const modalCloseElement = document.querySelector('.modal-close');
+            const saveHighScoresBtnElement = document.getElementById('save-high-scores');
+            if(modalCloseElement) modalCloseElement.addEventListener('click', () => {
+                const resultsModalElement = document.getElementById('results-modal');
+                if(resultsModalElement) resultsModalElement.classList.remove('show');
+            });
             if(saveHighScoresBtnElement) saveHighScoresBtnElement.addEventListener('click', saveScoresToHighScores);
+            console.log("Event listeners setup complete.");
         }
 
         // --- Initialization ---
         function initializeGame() {
-            console.log("Initializing Quality Jeopardy v11 (Hide FJ Answer)...");
+            console.log("Initializing Quality Jeopardy (Corrected Version)...");
             setupTabs();
             setupEventListeners();
-            loadGameProgress();
-            renderHighScores();
-            updateUndoButtonState();
+            loadGameProgress(); // Load any saved game state
+            renderHighScores(); // Display high scores
+            updateUndoButtonState(); // Set initial state of undo button
+            console.log("Game initialization complete.");
         }
 
         // --- Start ---
         document.addEventListener('DOMContentLoaded', initializeGame);
 
     </script>
+    <!-- ********** END COMPLETE SCRIPT ********** -->
+
+</body>
+</html>
