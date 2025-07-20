@@ -551,15 +551,15 @@
         </section>
 
         <!-- 
-            NOTE: Audio files are loaded from web URLs (like wikimedia.org) instead of local files.
-            Browsers block web pages from accessing local files (like 'C:\Users\...\Jeopardy.mp3') for security reasons.
-            Using web URLs ensures the sound will work for anyone running the game.
+            NOTE: Audio files are loaded from relative paths. 
+            For this to work when deployed (e.g., on GitHub Pages), the mp3 files 
+            must be in the root folder of the repository.
         -->
-        <audio id="bg-music" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Jeopardy_Think_Music.ogg" loop preload="auto"></audio>
-        <audio id="correct-sound" src="https://upload.wikimedia.org/wikipedia/commons/c/c7/Jeopardy-correct-answer.ogg" preload="auto"></audio>
-        <audio id="wrong-sound" src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Jeopardy-wrong-answer-2.ogg" preload="auto"></audio>
-        <audio id="daily-double-sound" src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Jeopardy-daily-double.ogg" preload="auto"></audio>
-        <audio id="final-jeopardy-sound" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Jeopardy_Think_Music.ogg" preload="auto"></audio>
+        <audio id="bg-music" src="Jeopardy - 2008 - Opening.mp3" loop preload="auto"></audio>
+        <audio id="correct-sound" src="correct.mp3" preload="auto"></audio>
+        <audio id="wrong-sound" src="wrong.mp3" preload="auto"></audio>
+        <audio id="daily-double-sound" src="daily_double.mp3" preload="auto"></audio>
+        <audio id="final-jeopardy-sound" src="final_jeopardy.mp3" preload="auto"></audio>
 
         <!-- Game Board -->
         <section id="board" aria-label="Jeopardy Game Board" style="display: none;"></section>
@@ -702,7 +702,10 @@
 
             window.speechSynthesis.cancel(); // Stop any ongoing speech
 
-            const utterance = new SpeechSynthesisUtterance(text);
+            // Replace sequences of two or more underscores with the word "blank" for clearer speech synthesis.
+            const speechText = text.replace(/_{2,}/g, 'blank');
+
+            const utterance = new SpeechSynthesisUtterance(speechText);
             window.speechSynthesis.speak(utterance);
         }
 
@@ -2114,4 +2117,5 @@
     <!-- ********** END COMPLETE SCRIPT ********** -->
 
 </body>
-</ht
+</html>
+" in the docume
