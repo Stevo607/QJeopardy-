@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jeopardy Game</title>
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; line-height: 1.4; background: var(--bg); color: var(--fg); }
+  </style>
+
+  <style>
+    :root {
+      --bg: #0b2345;
+      --fg: #fff;
+      --card-bg: #1e3a8a;
+      --flip-duration: 0.6s;
+      --score-bg: #02132c;
+      --correct-bg: #d4edda;
+      --wrong-bg: #f8d7da;
+      --jeopardy-border: 4px solid #ffeb3b;
+    }
+  </style>
+
+  
+
+  <style>
+    #board {
+        display: grid;
+        gap: 4px;
+        max-width: 1000px;
+        margin: 1rem auto;
+     }
+    .category { background: var(--card-bg); padding: 1rem; text-align: center; font-weight: bold; cursor: default; grid-column: span 1; }
+    .card { perspective: 1000px; cursor: pointer; position: relative; grid-column: span 1; }
+    .card.disabled { pointer-events: none; }
+    .card-inner { position: relative; width: 100%; height: 0; padding-bottom: 75%; transform-style: preserve-3d; transition: transform var(--flip-duration); }
+    .card.flipped .card-inner { transform: rotateY(180deg); }
+    .card-face { position: absolute; width: 100%; height: 100%; top: 0; left: 0; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; padding: 0.5rem; border-radius: 4px; }
+    .card-front { background: var(--card-bg); }
+    .card-back { background: #fff; color: #000; transform: rotateY(180deg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+    .card.correct .card-front, .card.correct .card-back { background: var(--correct-bg); color: #155724; }
+    .card.wrong .card-front, .card.wrong .card-back { background: var(--wrong-bg); color: #721c24; }
+    .card:not(.disabled):not(.flipped):hover .card-front { outline: 2px solid #fde047; transform: scale(1.05); }
+    .judge-buttons { margin-top: 1rem; display: flex; gap: 1rem; }
+    .judge-buttons button { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; }
+    #score-panel { max-width: 400px; margin: 1rem auto; background: var(--score-bg); color: var(--fg); padding: 1rem; border-radius: 8px; display: flex; flex-direction: column; gap: 0.5rem; }
+    #score-display { font-size: 2rem; text-align: center; }
+    .controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    input[type="number"] { width: 100px; padding: 0.25rem; font-size: 1rem; }
+    #victory { display: none; text-align: center; padding: 2rem; font-size: 2rem; background: #10b981; color: #fff; margin: 1rem auto; border-radius: 8px; }
+    @media (max-width: 600px) { .category { font-size: 0.9rem; padding: 0.5rem; } .card-face { font-size: 1rem; } #score-panel { width: 90%; } }
+  </style>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap');
+    #game-title {
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 900;
+      font-size: 4rem;
+      color: gold;
+      text-align: center;
+      margin: 1rem 0;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+    }
+  </style>
+
+</head>
+<body>
+  <header>
+    <h1 id="game-title">QUALITY JEOPARDY</h1>
+  </header>
+  <section id="score-panel" aria-label="Score Control Panel">
+    <div id="score-display" aria-live="polite">Score: $0</div>
+    <div class="controls">
+      <input id="manual-score" type="number" step="100" min="0" aria-label="Manual score adjustment">
+      <button id="apply-score" aria-label="Apply manual score">Update</button>
+    </div>
+    <div class="controls">
+      <button id="undo-score">Undo</button>
+      <button id="reset-score">Reset Score</button>
+      <button id="new-game">New Game</button>
+    </div>
+    <div class="controls">
+      <label for="music-toggle">Music</label>
+      <input type="checkbox" id="music-toggle">
+    </div>
+  </section>
+
+  <audio id="bg-music" src="Jeopardy - 2008 - Opening.mp3" loop preload="auto"></audio>
+  <section id="board" aria-label="Jeopardy Game Board"></section>
+  <div id="victory" role="alert">Congratulations! You've cleared the board!</div>
+
+  <script type="module">
+    const STORAGE_KEY = 'jeopardy_progress_' + location.pathname;
+    const gameData = {
+      categories: [
+        { name: 'Food Safety',     clues: [200, 400, 600, 800, 1000] },
+        { name: 'GMPs',     clues: [200, 400, 600, 800, 1000] },
+        { name: 'FSMA',  clues: [200, 400, 600, 800, 1000] },
+        { name: 'Allergens',      clues: [200, 400, 600, 800, 1000] },
+        { name: 'HACCP', clues: [200, 400, 600, 800, 1000] },
+        { name: 'Chocolate',   clues: [200, 400, 600, 800, 1000] }
+      ]
+    };
+
+    let score = 0;
+    let historyStack = [];
+    let boardState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    const numCategories = gameData.categories.length;
+    const numCluesPerCat = gameData.categories[0].clues.length;
+    const totalClues = numCategories * numCluesPerCat;
+    let randomIndex;
+
+    function calculateRandomIndex() {
+       randomIndex = Math.floor(Math.random() * totalClues);
+       console.log("Daily Double index:", randomIndex);
+    }
+
+    const scoreDisplay = document.getElementById('score-display');
+    const board = document.getElementById('board');
+    const victory = document.getElementById('victory');
+    const music = document.getElementById('bg-music');
+
+    function renderBoard() {
+      board.innerHTML = '';
+      board.style.gridTemplateColumns = `repeat(${numCategories}, 1fr)`;
+      gameData.categories.forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'category';
+        header.textContent = cat.name;
+        board.appendChild(header);
+      });
+      for (let rowIndex = 0; rowIndex < numCluesPerCat; rowIndex++) {
+        for (let catIndex = 0; catIndex < numCategories; catIndex++) {
+          const category = gameData.categories[catIndex];
+          const val = category.clues[rowIndex];
+          const key = `${catIndex}-${rowIndex}`;
+          const state = boardState[key];
+          const flatIndex = rowIndex * numCategories + catIndex;
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.dataset.key = key;
+          const isDailyDouble = (flatIndex === randomIndex && !state);
+          if (state) card.classList.add('disabled', state);
+          card.setAttribute('aria-label', `${category.name} $${val}`);
+          card.innerHTML = `
+            <div class="card-inner">
+              <div class="card-face card-front">$${val}</div>
+              <div class="card-face card-back"></div>
+            </div>`;
+          if (!state) {
+             card.addEventListener('click', () => handleClick(card, key, val, isDailyDouble));
+          }
+          board.appendChild(card);
+        }
+      }
+      checkVictory();
+    }
+
+    function handleClick(card, key, val, isDailyDouble) {
+      if (card.classList.contains('disabled') || card.classList.contains('flipped')) return;
+      card.classList.add('flipped');
+      const back = card.querySelector('.card-back');
+      back.innerHTML = '';
+      const questionText = document.createElement('div');
+      questionText.textContent = isDailyDouble ? 'Daily Double! Enter wager.' : `Question for $${val}`;
+      back.appendChild(questionText);
+      let wagerInput = null;
+      if (isDailyDouble) {
+          wagerInput = document.createElement('input');
+          wagerInput.type = 'number';
+          wagerInput.placeholder = 'Wager';
+          wagerInput.min = 5;
+          const highestBoardValue = gameData.categories[0].clues[numCluesPerCat - 1];
+          wagerInput.max = Math.max(5, score > 0 ? score : 0, highestBoardValue);
+          if (score < 5) wagerInput.max = Math.max(5, highestBoardValue);
+          wagerInput.style.margin = "0.5rem 0";
+          back.appendChild(wagerInput);
+      }
+      const btns = document.createElement('div');
+      btns.className = 'judge-buttons';
+      ['Correct', 'Wrong'].forEach(label => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.addEventListener('click', (e) => {
+             e.stopPropagation();
+             handleJudge(card, key, val, label === 'Correct', isDailyDouble, wagerInput);
+        });
+        btns.appendChild(b);
+      });
+      back.appendChild(btns);
+    }
+
+    function handleJudge(card, key, val, isCorrect, isDailyDouble, wagerInput) {
+        let delta = 0;
+        let wager = 0;
+        if (isDailyDouble) {
+             const enteredWager = parseInt(wagerInput?.value || '0', 10);
+             const highestBoardValue = gameData.categories[0].clues[numCluesPerCat - 1];
+             let maxWager = Math.max(5, score > 0 ? score : 0, highestBoardValue);
+             if (score < 5) maxWager = Math.max(5, highestBoardValue);
+             if (isNaN(enteredWager) || enteredWager < 5 || enteredWager > maxWager ) {
+                  alert(`Invalid wager. Must be between $5 and $${maxWager}.`);
+                  return;
+             }
+             wager = enteredWager;
+             delta = isCorrect ? wager : -wager;
+        } else {
+             delta = isCorrect ? val : -val;
+        }
+        const resultClass = isCorrect ? 'correct' : 'wrong';
+        card.classList.remove('flipped');
+        card.classList.add('disabled', resultClass);
+        const newCard = card.cloneNode(true);
+        card.parentNode.replaceChild(newCard, card);
+        const innerCard = newCard.querySelector('.card-inner');
+        if(innerCard) innerCard.style.transform = '';
+        boardState[key] = resultClass;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(boardState));
+        historyStack.push({ key: key, delta: delta });
+        updateScore(delta);
+        checkVictory();
+    }
+
+    function updateScore(delta) {
+        score += delta;
+        scoreDisplay.textContent = `Score: $${score}`;
+    }
+
+    function undo() {
+        if (!historyStack.length) return;
+        const lastAction = historyStack.pop();
+        if (lastAction.key === 'manual') {
+             score -= lastAction.delta;
+        } else {
+             score -= lastAction.delta;
+             delete boardState[lastAction.key];
+             localStorage.setItem(STORAGE_KEY, JSON.stringify(boardState));
+             const cardElement = board.querySelector(`.card[data-key="${lastAction.key}"]`);
+             if (cardElement) {
+                 const [catIndex, rowIndex] = lastAction.key.split('-').map(Number);
+                 const cardValue = gameData.categories[catIndex].clues[rowIndex];
+                 const flatIndex = rowIndex * numCategories + catIndex;
+                 const isDailyDouble = (flatIndex === randomIndex);
+                 const newCard = cardElement.cloneNode(true);
+                 newCard.className = 'card';
+                 const inner = newCard.querySelector('.card-inner');
+                 if(inner) inner.style.transform = '';
+                 const back = newCard.querySelector('.card-back');
+                 if(back) back.innerHTML = '';
+                 newCard.addEventListener('click', () => handleClick(newCard, lastAction.key, cardValue, isDailyDouble));
+                 cardElement.parentNode.replaceChild(newCard, cardElement);
+             }
+        }
+        updateScore(0);
+        checkVictory();
+    }
+
+    function resetScore() {
+        if (confirm("Are you sure you want to reset the score to $0? This cannot be undone easily.")) {
+            score = 0;
+            updateScore(0);
+        }
+    }
+
+    function newGame() {
+        if (confirm("Are you sure you want to start a NEW game? All progress will be lost.")) {
+            boardState = {};
+            localStorage.removeItem(STORAGE_KEY);
+            historyStack = [];
+            score = 0;
+            calculateRandomIndex();
+            updateScore(0);
+            renderBoard();
+            victory.style.display = 'none';
+        }
+    }
+
+    function checkVictory() {
+       const answeredCount = Object.keys(boardState).length;
+       if (answeredCount === totalClues) {
+          victory.style.display = 'block';
+       } else {
+          victory.style.display = 'none';
+       }
+    }
+
+    document.getElementById('apply-score').addEventListener('click', () => {
+      const manualVal = document.getElementById('manual-score').value;
+      const v = parseInt(manualVal, 10);
+      if (isNaN(v)) {
+          return alert('Invalid score value. Please enter a number.');
+      }
+      const delta = v - score;
+      historyStack.push({ key: 'manual', delta: delta });
+      score = v;
+      updateScore(0);
+      document.getElementById('manual-score').value = '';
+    });
+
+    document.getElementById('undo-score').addEventListener('click', undo);
+    document.getElementById('reset-score').addEventListener('click', resetScore);
+    document.getElementById('new-game').addEventListener('click', newGame);
+    document.getElementById('music-toggle').addEventListener('change', e => {
+        if (e.target.checked) {
+            music.play().catch(error => console.error("Audio playback failed:", error));
+        } else {
+            music.pause();
+        }
+    });
+
+    // Initial load
+    calculateRandomIndex();
+    updateScore(0);
+    renderBoard();
+    // Autoplay music at start
+    music.play().catch(error => console.error("Audio playback failed:", error));
+  </script>
+</body>
+</html>
